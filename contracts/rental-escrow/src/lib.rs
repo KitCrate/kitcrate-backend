@@ -1,9 +1,9 @@
 #![no_std]
 
 mod agreement;
-mod error;
+pub mod error;
 mod storage;
-mod types;
+pub mod types;
 
 use soroban_sdk::contract;
 
