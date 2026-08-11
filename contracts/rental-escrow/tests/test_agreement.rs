@@ -1,7 +1,7 @@
 mod common;
 
-use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, String};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
+use soroban_sdk::{Address, IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
 
@@ -332,4 +332,153 @@ fn full_happy_path_fund_to_release() {
                 .unwrap()
         });
     assert_eq!(stored.status, AgreementStatus::Completed);
+}
+
+#[test]
+fn create_agreement_emits_agreement_created() {
+    let t = setup();
+    let client = t.client();
+    let item = item_ref(&t.env, "listing-1");
+    let id = client.create_agreement(
+        &t.owner,
+        &t.renter,
+        &item,
+        &1000i128,
+        &500i128,
+        &1_700_000_000u64,
+        &1_700_086_400u64,
+        &86_400u64,
+    );
+    assert_eq!(id, 1);
+    let expected = RentalAgreement {
+        id: 1,
+        owner: t.owner.clone(),
+        renter: t.renter.clone(),
+        item_ref: item.clone(),
+        rental_amount: 1000,
+        deposit_amount: 500,
+        start_time: 1_700_000_000,
+        end_time: 1_700_086_400,
+        claim_window_secs: 86_400,
+        status: AgreementStatus::Created,
+        created_at: common::NOW,
+    };
+    assert_eq!(
+        t.env.events().all(),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "agreement_created"), 1u64).into_val(&t.env),
+                expected.into_val(&t.env),
+            )
+        ]
+    );
+}
+
+#[test]
+fn fund_agreement_emits_agreement_funded() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    // Filter out the token contract's own transfer event.
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.contract_id),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "agreement_funded"), 1u64).into_val(&t.env),
+                (1u64, 1500i128).into_val(&t.env),
+            )
+        ]
+    );
+}
+
+#[test]
+fn start_rental_emits_rental_started() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    t.client().start_rental(&t.owner, &id);
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.contract_id),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "rental_started"), 1u64).into_val(&t.env),
+                1u64.into_val(&t.env),
+            )
+        ]
+    );
+}
+
+#[test]
+fn cancel_agreement_before_funding() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    t.client().cancel_agreement(&t.renter, &id);
+    let stored: RentalAgreement = t
+        .env
+        .as_contract(&t.contract_id, || {
+            t.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Agreement(id))
+                .unwrap()
+        });
+    assert_eq!(stored.status, AgreementStatus::Cancelled);
+}
+
+#[test]
+fn cancel_agreement_rejects_funded_agreement() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    let res = t.client().try_cancel_agreement(&t.renter, &id);
+    assert!(matches!(res, Err(Ok(RentalError::InvalidStatus))));
+}
+
+#[test]
+fn cancel_agreement_rejects_stranger() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    let stranger = Address::generate(&t.env);
+    let res = t.client().try_cancel_agreement(&stranger, &id);
+    assert!(matches!(res, Err(Ok(RentalError::Unauthorized))));
+}
+
+#[test]
+fn cancel_agreement_requires_caller_auth() {
+    let t = setup_no_auth();
+    let res = t.client().try_cancel_agreement(&t.renter, &999);
+    assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn cancel_agreement_emits_agreement_cancelled() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    t.client().cancel_agreement(&t.owner, &id);
+    assert_eq!(
+        t.env.events().all(),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "agreement_cancelled"), 1u64).into_val(&t.env),
+                1u64.into_val(&t.env),
+            )
+        ]
+    );
 }

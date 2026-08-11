@@ -1,7 +1,7 @@
 mod common;
 
-use soroban_sdk::testutils::Ledger as _;
-use soroban_sdk::String;
+use soroban_sdk::testutils::{Events, Ledger as _};
+use soroban_sdk::{IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
 
@@ -91,4 +91,23 @@ fn release_funds_rejects_unknown_id() {
     let t = setup();
     let res = t.client().try_release_funds(&42);
     assert!(matches!(res, Err(Ok(RentalError::NotFound))));
+}
+
+#[test]
+fn release_funds_emits_funds_released() {
+    let t = setup();
+    let id = active_agreement(&t);
+    t.env.ledger().set_timestamp(CLAIM_DEADLINE + 1);
+    t.client().release_funds(&id);
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.contract_id),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "funds_released"), 1u64).into_val(&t.env),
+                1u64.into_val(&t.env),
+            )
+        ]
+    );
 }

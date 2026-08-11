@@ -1,7 +1,7 @@
 mod common;
 
-use soroban_sdk::testutils::Ledger as _;
-use soroban_sdk::String;
+use soroban_sdk::testutils::{Events, Ledger as _};
+use soroban_sdk::{IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
 
@@ -224,4 +224,43 @@ fn resolve_dispute_requires_arbiter_auth() {
     let t = setup_no_auth();
     let res = t.client().try_resolve_dispute(&t.arbiter, &999, &100i128);
     assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn claim_raised_emits_evidence_ref() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.contract_id),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "claim_raised"), 1u64).into_val(&t.env),
+                (1u64, 300i128, evidence.clone()).into_val(&t.env),
+            )
+        ]
+    );
+}
+
+#[test]
+fn dispute_resolved_emits_split() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    t.client().resolve_dispute(&t.arbiter, &id, &300i128);
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.contract_id),
+        soroban_sdk::vec![
+            &t.env,
+            (
+                t.contract_id.clone(),
+                (Symbol::new(&t.env, "dispute_resolved"), 1u64).into_val(&t.env),
+                (1u64, 300i128, 200i128).into_val(&t.env),
+            )
+        ]
+    );
 }

@@ -2,6 +2,7 @@ use soroban_sdk::token::TokenClient;
 use soroban_sdk::{contractimpl, Address, Env, String};
 
 use crate::error::RentalError;
+use crate::events;
 use crate::storage;
 use crate::types::AgreementStatus;
 use crate::{RentalEscrow, RentalEscrowArgs, RentalEscrowClient};
@@ -47,6 +48,7 @@ impl RentalEscrow {
         }
         agreement.status = AgreementStatus::Disputed;
         storage::write_agreement(env, &agreement);
+        events::claim_raised(env, id, claim_amount, &evidence_ref);
         Ok(())
     }
 
@@ -84,6 +86,7 @@ impl RentalEscrow {
         token.transfer(&contract, &agreement.owner, &agreement.rental_amount);
         agreement.status = AgreementStatus::Resolved;
         storage::write_agreement(env, &agreement);
+        events::dispute_resolved(env, id, amount_to_owner, amount_to_renter);
         Ok(())
     }
 }

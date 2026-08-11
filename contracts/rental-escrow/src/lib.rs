@@ -3,6 +3,7 @@
 mod agreement;
 mod dispute;
 pub mod error;
+mod events;
 mod storage;
 pub mod types;
 
