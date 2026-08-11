@@ -1,5 +1,7 @@
 # Rust
 target/
+# Soroban test harness writes diagnostic snapshots when a test fails
+test_snapshots/
 
 # Node
 node_modules/
