@@ -12,9 +12,11 @@ contract-build:
 contract-test:
 	cargo test
 
-# Build the deployable Soroban wasm artifact.
+# Build the deployable Soroban wasm artifact. soroban-sdk 27 requires the
+# wasm32v1-none target; wasm32-unknown-unknown is unsupported since
+# rustc 1.82.
 wasm:
-	cargo build --target wasm32-unknown-unknown --release -p rental-escrow
+	cargo build --target wasm32v1-none --release -p rental-escrow
 
 indexer-install:
 	cd indexer && npm install

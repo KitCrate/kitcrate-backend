@@ -149,14 +149,14 @@ Prerequisites: Rust (rustc >= 1.91), Node.js >= 20, Docker.
 ```sh
 make contract-build     # cargo build
 make contract-test      # cargo test (the full integration suite)
-make wasm               # build the deployable wasm for wasm32-unknown-unknown
+make wasm               # build the deployable wasm (wasm32v1-none target)
 ```
 
 Deploy to testnet with the Stellar CLI (build first, then):
 
 ```sh
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/rental_escrow.wasm \
+  --wasm target/wasm32v1-none/release/rental_escrow.wasm \
   --source <deployer-account> --network testnet
 ```
 
