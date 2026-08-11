@@ -121,4 +121,31 @@ impl RentalEscrow {
         storage::write_agreement(env, &agreement);
         Ok(())
     }
+
+    /// Releases escrowed funds after a clean rental. Auth: none. This is
+    /// permissionless and time-gated: anyone may call it once the claim
+    /// window has passed with no claim raised (`now > end_time +
+    /// claim_window_secs`). Returns the deposit to the renter and the
+    /// rental fee to the owner, then marks the agreement `Completed`.
+    /// Real-world action: automatic settlement of an undisputed rental.
+    pub fn release_funds(env: &Env, id: u64) -> Result<(), RentalError> {
+        let mut agreement = storage::read_agreement(env, id)?;
+        if agreement.status != AgreementStatus::Active {
+            return Err(RentalError::InvalidStatus);
+        }
+        let claim_deadline = agreement
+            .end_time
+            .checked_add(agreement.claim_window_secs)
+            .ok_or(RentalError::Overflow)?;
+        if env.ledger().timestamp() <= claim_deadline {
+            return Err(RentalError::ClaimWindowActive);
+        }
+        let token = TokenClient::new(env, &storage::read_token(env)?);
+        let contract = env.current_contract_address();
+        token.transfer(&contract, &agreement.renter, &agreement.deposit_amount);
+        token.transfer(&contract, &agreement.owner, &agreement.rental_amount);
+        agreement.status = AgreementStatus::Completed;
+        storage::write_agreement(env, &agreement);
+        Ok(())
+    }
 }
