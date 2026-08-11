@@ -102,4 +102,23 @@ impl RentalEscrow {
         storage::write_agreement(env, &agreement);
         Ok(())
     }
+
+    /// Confirms physical handover of the item. Auth: `owner`. Requires
+    /// status `Funded`; sets status `Active`. Real-world action: the
+    /// owner handing the item to the renter and confirming it in the app.
+    pub fn start_rental(env: &Env, owner: Address, id: u64) -> Result<(), RentalError> {
+        owner.require_auth();
+        let mut agreement = storage::read_agreement(env, id)?;
+        // require_auth proves the caller signed; this proves they are the
+        // agreement's owner.
+        if agreement.owner != owner {
+            return Err(RentalError::Unauthorized);
+        }
+        if agreement.status != AgreementStatus::Funded {
+            return Err(RentalError::InvalidStatus);
+        }
+        agreement.status = AgreementStatus::Active;
+        storage::write_agreement(env, &agreement);
+        Ok(())
+    }
 }
