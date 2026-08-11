@@ -1,3 +1,4 @@
+use soroban_sdk::token::TokenClient;
 use soroban_sdk::{contractimpl, Address, Env, String};
 
 use crate::error::RentalError;
@@ -45,6 +46,43 @@ impl RentalEscrow {
             return Err(RentalError::ClaimWindowExpired);
         }
         agreement.status = AgreementStatus::Disputed;
+        storage::write_agreement(env, &agreement);
+        Ok(())
+    }
+
+    /// Resolves a disputed agreement. Auth: `arbiter` (the account set at
+    /// `initialize`; contract addresses are not supported as arbiters).
+    /// Requires status `Disputed`. Splits the deposit between owner and
+    /// renter and pays the full rental fee to the owner, then sets status
+    /// `Resolved`. Real-world action: the platform arbiter adjudicating a
+    /// damage claim after reviewing the evidence off-chain.
+    pub fn resolve_dispute(
+        env: &Env,
+        arbiter: Address,
+        id: u64,
+        amount_to_owner: i128,
+    ) -> Result<(), RentalError> {
+        arbiter.require_auth();
+        let mut agreement = storage::read_agreement(env, id)?;
+        if arbiter != storage::read_arbiter(env)? {
+            return Err(RentalError::Unauthorized);
+        }
+        if agreement.status != AgreementStatus::Disputed {
+            return Err(RentalError::InvalidStatus);
+        }
+        if amount_to_owner < 0 {
+            return Err(RentalError::InvalidAmount);
+        }
+        if amount_to_owner > agreement.deposit_amount {
+            return Err(RentalError::InsufficientAmount);
+        }
+        let amount_to_renter = agreement.deposit_amount - amount_to_owner;
+        let token = TokenClient::new(env, &storage::read_token(env)?);
+        let contract = env.current_contract_address();
+        token.transfer(&contract, &agreement.owner, &amount_to_owner);
+        token.transfer(&contract, &agreement.renter, &amount_to_renter);
+        token.transfer(&contract, &agreement.owner, &agreement.rental_amount);
+        agreement.status = AgreementStatus::Resolved;
         storage::write_agreement(env, &agreement);
         Ok(())
     }
