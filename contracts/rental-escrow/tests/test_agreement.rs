@@ -1,6 +1,6 @@
 mod common;
 
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, String};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
@@ -255,4 +255,81 @@ fn fund_agreement_requires_renter_auth() {
     // at the host level when the renter has not authorized the call.
     let res = client.try_fund_agreement(&t.renter, &999);
     assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn start_rental_activates_a_funded_agreement() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    t.client().start_rental(&t.owner, &id);
+
+    let stored: RentalAgreement = t
+        .env
+        .as_contract(&t.contract_id, || {
+            t.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Agreement(id))
+                .unwrap()
+        });
+    assert_eq!(stored.status, AgreementStatus::Active);
+}
+
+#[test]
+fn start_rental_rejects_unfunded_agreement() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    // Created but never funded.
+    let id = create_agreement(&t, &item);
+    let res = t.client().try_start_rental(&t.owner, &id);
+    assert!(matches!(res, Err(Ok(RentalError::InvalidStatus))));
+}
+
+#[test]
+fn start_rental_rejects_non_owner() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    let res = t.client().try_start_rental(&t.renter, &id);
+    assert!(matches!(res, Err(Ok(RentalError::Unauthorized))));
+}
+
+#[test]
+fn start_rental_requires_owner_auth() {
+    let t = setup_no_auth();
+    let res = t.client().try_start_rental(&t.owner, &999);
+    assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn full_happy_path_fund_to_release() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+    t.client().start_rental(&t.owner, &id);
+
+    // Rental period ends and the claim window passes without a claim.
+    t.env.ledger().set_timestamp(1_700_172_801);
+    t.client().release_funds(&id);
+
+    assert_eq!(balance(&t.env, &t.token, &t.renter), 500);
+    assert_eq!(balance(&t.env, &t.token, &t.owner), 1000);
+    assert_eq!(balance(&t.env, &t.token, &t.contract_id), 0);
+    let stored: RentalAgreement = t
+        .env
+        .as_contract(&t.contract_id, || {
+            t.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Agreement(id))
+                .unwrap()
+        });
+    assert_eq!(stored.status, AgreementStatus::Completed);
 }

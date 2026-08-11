@@ -5,7 +5,7 @@ use soroban_sdk::String;
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
 
-use common::{mint, setup, setup_no_auth, TestEnv};
+use common::{balance, mint, setup, setup_no_auth, TestEnv};
 
 /// Agreement window used by the helpers: rental ends at NOW + 86400 and
 /// the claim window is 86400 seconds, so the claim deadline is
@@ -139,4 +139,89 @@ fn raise_claim_after_window_expires() {
         .client()
         .try_raise_claim(&t.owner, &id, &100i128, &evidence);
     assert!(matches!(res, Err(Ok(RentalError::ClaimWindowExpired))));
+}
+
+#[test]
+fn resolve_dispute_splits_deposit_and_pays_rental() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    t.client().resolve_dispute(&t.arbiter, &id, &300i128);
+
+    // Owner: 300 from the deposit plus the 1000 rental fee.
+    assert_eq!(balance(&t.env, &t.token, &t.owner), 1300);
+    // Renter: the remaining 200 of the deposit.
+    assert_eq!(balance(&t.env, &t.token, &t.renter), 200);
+    assert_eq!(balance(&t.env, &t.token, &t.contract_id), 0);
+    let stored: RentalAgreement = t
+        .env
+        .as_contract(&t.contract_id, || {
+            t.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Agreement(id))
+                .unwrap()
+        });
+    assert_eq!(stored.status, AgreementStatus::Resolved);
+}
+
+#[test]
+fn resolve_dispute_can_return_full_deposit_to_renter() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &100i128, &evidence);
+    // Arbiter finds no fault: zero to the owner, full deposit back.
+    t.client().resolve_dispute(&t.arbiter, &id, &0i128);
+
+    assert_eq!(balance(&t.env, &t.token, &t.owner), 1000);
+    assert_eq!(balance(&t.env, &t.token, &t.renter), 500);
+    assert_eq!(balance(&t.env, &t.token, &t.contract_id), 0);
+}
+
+#[test]
+fn resolve_dispute_rejects_award_over_deposit() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    let res = t.client().try_resolve_dispute(&t.arbiter, &id, &501i128);
+    assert!(matches!(res, Err(Ok(RentalError::InsufficientAmount))));
+}
+
+#[test]
+fn resolve_dispute_rejects_negative_award() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    let res = t.client().try_resolve_dispute(&t.arbiter, &id, &-1i128);
+    assert!(matches!(res, Err(Ok(RentalError::InvalidAmount))));
+}
+
+#[test]
+fn resolve_dispute_rejects_non_disputed_agreement() {
+    let t = setup();
+    let id = active_agreement(&t);
+    // Still Active: no claim has been raised.
+    let res = t.client().try_resolve_dispute(&t.arbiter, &id, &100i128);
+    assert!(matches!(res, Err(Ok(RentalError::InvalidStatus))));
+}
+
+#[test]
+fn resolve_dispute_rejects_non_arbiter() {
+    let t = setup();
+    let id = active_agreement(&t);
+    let evidence = item_ref(&t.env, "ipfs://QmEvidence");
+    t.client().raise_claim(&t.owner, &id, &300i128, &evidence);
+    let res = t.client().try_resolve_dispute(&t.owner, &id, &100i128);
+    assert!(matches!(res, Err(Ok(RentalError::Unauthorized))));
+}
+
+#[test]
+fn resolve_dispute_requires_arbiter_auth() {
+    let t = setup_no_auth();
+    let res = t.client().try_resolve_dispute(&t.arbiter, &999, &100i128);
+    assert!(matches!(res, Err(Err(_))));
 }
