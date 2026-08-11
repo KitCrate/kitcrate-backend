@@ -194,12 +194,21 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
   }
 }
 
+/// Outcome of persisting one event.
+type PersistOutcome = 'inserted' | 'duplicate' | 'changed';
+
 /// Persists one event and, when it is new, applies its state transition.
 /// Both writes happen in one transaction and the event insert is
 /// idempotent (`ON CONFLICT DO NOTHING` keyed on the RPC event id), so
 /// reprocessing the same event after a restart or a reorg never creates
 /// duplicate rows or double-applies a transition.
-async function persistEvent(event: ParsedEvent): Promise<void> {
+///
+/// When the event id already exists, the incoming event is compared with
+/// the indexed copy. A difference means the ledger content changed under
+/// us, which is evidence of a reorg that the checkpoint-vs-tip check
+/// would miss (for example a same-height reorg), and `changed` is
+/// returned so the poll loop can rebuild.
+async function persistEvent(event: ParsedEvent): Promise<PersistOutcome> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -218,8 +227,19 @@ async function persistEvent(event: ParsedEvent): Promise<void> {
     );
     if (inserted.rowCount === 1) {
       await applyStateTransition(client, event);
+      await client.query('COMMIT');
+      return 'inserted';
     }
     await client.query('COMMIT');
+    const stored = await client.query(
+      'SELECT topic, data::text AS data FROM agreement_events WHERE id = $1',
+      [event.eventId],
+    );
+    const row = stored.rows[0];
+    if (row && (row.topic !== event.topicName || row.data !== JSON.stringify(event.data))) {
+      return 'changed';
+    }
+    return 'duplicate';
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -228,12 +248,23 @@ async function persistEvent(event: ParsedEvent): Promise<void> {
   }
 }
 
+interface ProcessResult {
+  highest: number;
+  reorgDetected: boolean;
+}
+
 /// Fetches and decodes events starting at `startLedger`, following the
 /// pagination cursor until caught up with `tip`. Returns the highest
-/// ledger whose events were processed.
-async function processEvents(server: Server, startLedger: number, tip: number): Promise<number> {
+/// ledger whose events were processed and whether any event content
+/// conflicted with an already-indexed copy (reorg evidence).
+async function processEvents(
+  server: Server,
+  startLedger: number,
+  tip: number,
+): Promise<ProcessResult> {
   let cursor: string | undefined;
   let highest = startLedger;
+  let reorgDetected = false;
   for (;;) {
     const filters = [{ type: 'contract' as const, contractIds: [config.contractId] }];
     const response = await server.getEvents(
@@ -248,7 +279,10 @@ async function processEvents(server: Server, startLedger: number, tip: number): 
       }
       const parsed = parseEvent(event);
       if (parsed) {
-        await persistEvent(parsed);
+        const outcome = await persistEvent(parsed);
+        if (outcome === 'changed') {
+          reorgDetected = true;
+        }
         console.log(
           `[listener] ${parsed.topicName} agreement=${parsed.agreementId} ledger=${parsed.ledger}`,
         );
@@ -266,7 +300,7 @@ async function processEvents(server: Server, startLedger: number, tip: number): 
     }
     cursor = response.cursor;
   }
-  return highest;
+  return { highest, reorgDetected };
 }
 
 /// Starts the polling loop. Soroban RPC has no push mechanism, so events
@@ -286,23 +320,44 @@ export function startListener(): { stop: () => void } {
 
   const tick = async (): Promise<void> => {
     try {
-      const latest = await server.getLatestLedger();
-      let lastProcessed = await readCheckpoint();
+      // Rebuild and re-index when a reorg is detected; capped so a
+      // pathological RPC cannot loop forever.
+      const maxRebuilds = 5;
+      let rebuilds = 0;
+      for (;;) {
+        const latest = await server.getLatestLedger();
+        const lastProcessed = await readCheckpoint();
 
-      if (lastProcessed > latest.sequence) {
-        console.warn(
-          `[listener] rollback detected: checkpoint ${lastProcessed} is ahead of tip ` +
-            `${latest.sequence}; rebuilding state`,
-        );
-        await pool.query('DELETE FROM agreement_events');
-        await pool.query('DELETE FROM agreements');
-        lastProcessed = config.startLedger;
-        await writeCheckpoint(lastProcessed);
+        if (lastProcessed > latest.sequence) {
+          console.warn(
+            `[listener] rollback detected: checkpoint ${lastProcessed} is ahead of tip ` +
+              `${latest.sequence}; rebuilding state`,
+          );
+          await rebuildState();
+        } else {
+          const { highest, reorgDetected } = await processEvents(
+            server,
+            lastProcessed,
+            latest.sequence,
+          );
+          if (reorgDetected) {
+            console.warn(
+              '[listener] an indexed event changed on-chain; rebuilding state',
+            );
+            await rebuildState();
+          } else {
+            await writeCheckpoint(highest);
+            console.log(`[listener] caught up through ledger ${highest}`);
+            break;
+          }
+        }
+
+        rebuilds += 1;
+        if (rebuilds >= maxRebuilds) {
+          console.error(`[listener] giving up after ${maxRebuilds} rebuilds; retrying next poll`);
+          break;
+        }
       }
-
-      const highest = await processEvents(server, lastProcessed, latest.sequence);
-      await writeCheckpoint(highest);
-      console.log(`[listener] caught up through ledger ${highest} (tip ${latest.sequence})`);
     } catch (err) {
       console.error('[listener] poll failed', err);
     } finally {
@@ -310,6 +365,14 @@ export function startListener(): { stop: () => void } {
         timer = setTimeout(() => void tick(), config.pollIntervalMs);
       }
     }
+  };
+
+  /// Wipes both tables and resets the checkpoint so the next pass
+  /// re-indexes from `START_LEDGER` on the canonical chain.
+  const rebuildState = async (): Promise<void> => {
+    await pool.query('DELETE FROM agreement_events');
+    await pool.query('DELETE FROM agreements');
+    await writeCheckpoint(config.startLedger);
   };
 
   void tick();

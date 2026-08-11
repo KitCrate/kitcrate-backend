@@ -123,10 +123,12 @@ indexer can derive a usable current-state table from events alone:
   Reprocessing the same event (restart, re-fetch at a ledger boundary) can
   never duplicate rows or double-apply a transition. The
   `(ledger_seq, event_index)` unique constraint is a second guard.
-- A `sync_state` table stores the last processed ledger. On every poll the
-  listener compares the checkpoint with the RPC tip. If the chain has
-  rolled back behind the checkpoint (reorg), the indexer wipes both tables
-  and rebuilds from `START_LEDGER`, so it can never silently drift out of
+- A `sync_state` table stores the last processed ledger. Reorgs are
+  detected two ways: the listener compares the checkpoint with the RPC
+  tip (rollback behind the checkpoint), and compares any conflicting
+  re-fetched event against its indexed copy (same-height reorgs that
+  change event content). Either way the indexer wipes both tables and
+  rebuilds from `START_LEDGER`, so it can never silently drift out of
   sync. The full rebuild is intentional: with the dataset sizes this
   project targets, it is simpler and more correct than surgically
   patching rolled-back ledgers.
@@ -198,6 +200,9 @@ deployed (or slightly earlier); the RPC node only retains recent history.
 - The escrow token is set once at `initialize` and all transfers use the
   token contract's own `transfer` function; funds never move by any other
   path.
+- The REST API returns Postgres `NUMERIC` amounts as strings (standard
+  `pg` behavior); parse them client-side or cast in SQL if you need
+  numbers.
 - A failed token transfer aborts and reverts the whole transaction at the
   host level, which is the correct escrow behavior: no partial state
   changes.
