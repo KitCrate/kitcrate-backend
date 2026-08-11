@@ -1,3 +1,4 @@
+use soroban_sdk::token::TokenClient;
 use soroban_sdk::{contractimpl, Address, Env, String};
 
 use crate::error::RentalError;
@@ -69,5 +70,36 @@ impl RentalEscrow {
         };
         storage::write_agreement(env, &agreement);
         Ok(id)
+    }
+
+    /// Funds a created agreement. Auth: `renter`. Transfers
+    /// `rental_amount + deposit_amount` from the renter into the escrow
+    /// contract through the SEP-41 token. Real-world action: the renter
+    /// paying the rental fee and locking the security deposit before
+    /// handover. Failing to fund keeps the agreement in `Created`;
+    /// a failed token transfer aborts the transaction at the host level
+    /// and reverts all state, which is the correct escrow behavior.
+    pub fn fund_agreement(env: &Env, renter: Address, id: u64) -> Result<(), RentalError> {
+        renter.require_auth();
+        let mut agreement = storage::read_agreement(env, id)?;
+        // The caller must be the agreement's renter: require_auth proves the
+        // passed address signed, this check proves it is the right address.
+        if agreement.renter != renter {
+            return Err(RentalError::Unauthorized);
+        }
+        match agreement.status {
+            AgreementStatus::Created => {}
+            AgreementStatus::Funded => return Err(RentalError::AlreadyFunded),
+            _ => return Err(RentalError::InvalidStatus),
+        }
+        let total = agreement
+            .rental_amount
+            .checked_add(agreement.deposit_amount)
+            .ok_or(RentalError::Overflow)?;
+        let token = TokenClient::new(env, &storage::read_token(env)?);
+        token.transfer(&renter, &env.current_contract_address(), &total);
+        agreement.status = AgreementStatus::Funded;
+        storage::write_agreement(env, &agreement);
+        Ok(())
     }
 }
