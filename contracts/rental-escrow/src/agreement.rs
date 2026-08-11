@@ -148,4 +148,24 @@ impl RentalEscrow {
         storage::write_agreement(env, &agreement);
         Ok(())
     }
+
+    /// Cancels an agreement before it is funded. Auth: `caller` must be
+    /// the stored `owner` or `renter`. Requires status `Created` only;
+    /// sets status `Cancelled`. Real-world action: either party backing
+    /// out before any money moves. Known scope limit, not a bug: funded
+    /// agreements cannot be cancelled in v1, there is no mutual-consent
+    /// cancellation path.
+    pub fn cancel_agreement(env: &Env, caller: Address, id: u64) -> Result<(), RentalError> {
+        caller.require_auth();
+        let mut agreement = storage::read_agreement(env, id)?;
+        if caller != agreement.owner && caller != agreement.renter {
+            return Err(RentalError::Unauthorized);
+        }
+        if agreement.status != AgreementStatus::Created {
+            return Err(RentalError::InvalidStatus);
+        }
+        agreement.status = AgreementStatus::Cancelled;
+        storage::write_agreement(env, &agreement);
+        Ok(())
+    }
 }
