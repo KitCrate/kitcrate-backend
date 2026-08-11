@@ -1,4 +1,12 @@
-use soroban_sdk::{Address, Env, String, Symbol};
+// Events are emitted with `env.events().publish` rather than the newer
+// `#[contractevent]` macro. The macro only supports static topic lists,
+// while every event here carries the agreement id as a dynamic second
+// topic segment so off-chain indexers can filter on it directly. That is
+// not expressible with `#[contractevent]`, so the deprecated but fully
+// supported `publish` API is used deliberately.
+#![allow(deprecated)]
+
+use soroban_sdk::{Env, String, Symbol};
 
 use crate::types::RentalAgreement;
 

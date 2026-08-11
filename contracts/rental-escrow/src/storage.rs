@@ -17,13 +17,6 @@ pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Admin)
 }
 
-pub fn read_admin(env: &Env) -> Result<Address, RentalError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .ok_or(RentalError::NotFound)
-}
-
 pub fn read_arbiter(env: &Env) -> Result<Address, RentalError> {
     env.storage()
         .instance()
