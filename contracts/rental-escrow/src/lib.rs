@@ -1,6 +1,7 @@
 #![no_std]
 
 mod agreement;
+mod dispute;
 pub mod error;
 mod storage;
 pub mod types;
