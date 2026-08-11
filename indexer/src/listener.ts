@@ -1,7 +1,9 @@
+import type { PoolClient } from 'pg';
 import { Address, xdr } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 import { config } from './config.js';
+import { pool } from './db/client.js';
 
 /// The subset of the RPC event shape this listener consumes. The SDK
 /// already decodes topic and value into xdr.ScVal objects.
@@ -24,6 +26,28 @@ export interface ParsedEvent {
   agreementId: string;
   data: unknown;
 }
+
+/// The contract serializes AgreementStatus as its variant index; the
+/// off-chain status names are documented in the contract types.
+const STATUS_NAMES = [
+  'Created',
+  'Funded',
+  'Active',
+  'Disputed',
+  'Resolved',
+  'Completed',
+  'Cancelled',
+] as const;
+
+/// Status each transition event moves an agreement to.
+const EVENT_STATUS: Record<string, string> = {
+  agreement_funded: 'Funded',
+  rental_started: 'Active',
+  claim_raised: 'Disputed',
+  dispute_resolved: 'Resolved',
+  funds_released: 'Completed',
+  agreement_cancelled: 'Cancelled',
+};
 
 /// Converts an xdr.ScVal into JSON-safe data. i128/u64 amounts stay as
 /// decimal strings (they can exceed JavaScript's safe integer range),
@@ -110,6 +134,100 @@ export function parseEvent(event: ContractEvent): ParsedEvent | null {
   };
 }
 
+async function readCheckpoint(): Promise<number> {
+  const result = await pool.query('SELECT last_processed_ledger FROM sync_state WHERE id = 1');
+  return Number(result.rows[0]?.last_processed_ledger ?? config.startLedger);
+}
+
+async function writeCheckpoint(ledger: number): Promise<void> {
+  await pool.query(
+    `INSERT INTO sync_state (id, last_processed_ledger) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET last_processed_ledger = EXCLUDED.last_processed_ledger`,
+    [ledger],
+  );
+}
+
+/// Applies a single event to the derived `agreements` current-state
+/// table. `agreement_created` carries the full agreement as a named map;
+/// every other event only flips the status.
+async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Promise<void> {
+  const { topicName, agreementId, ledger, data } = parsed;
+  switch (topicName) {
+    case 'agreement_created': {
+      const d = data as Record<string, unknown>;
+      const statusIndex = Number(d.status ?? 0);
+      await client.query(
+        `INSERT INTO agreements (
+           id, owner, renter, item_ref, rental_amount, deposit_amount,
+           start_time, end_time, claim_window_secs, status, created_at,
+           created_ledger, updated_ledger
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          agreementId,
+          d.owner,
+          d.renter,
+          d.item_ref,
+          d.rental_amount,
+          d.deposit_amount,
+          d.start_time,
+          d.end_time,
+          d.claim_window_secs,
+          STATUS_NAMES[statusIndex] ?? 'Created',
+          d.created_at,
+          ledger,
+          ledger,
+        ],
+      );
+      return;
+    }
+    default: {
+      const status = EVENT_STATUS[topicName];
+      if (!status) {
+        return;
+      }
+      await client.query('UPDATE agreements SET status = $1, updated_ledger = $2 WHERE id = $3', [
+        status,
+        ledger,
+        agreementId,
+      ]);
+    }
+  }
+}
+
+/// Persists one event and, when it is new, applies its state transition.
+/// Both writes happen in one transaction and the event insert is
+/// idempotent (`ON CONFLICT DO NOTHING` keyed on the RPC event id), so
+/// reprocessing the same event after a restart or a reorg never creates
+/// duplicate rows or double-applies a transition.
+async function persistEvent(event: ParsedEvent): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const inserted = await client.query(
+      `INSERT INTO agreement_events (id, ledger_seq, event_index, agreement_id, topic, data)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        event.eventId,
+        event.ledger,
+        event.eventIndex,
+        event.agreementId,
+        event.topicName,
+        JSON.stringify(event.data),
+      ],
+    );
+    if (inserted.rowCount === 1) {
+      await applyStateTransition(client, event);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /// Fetches and decodes events starting at `startLedger`, following the
 /// pagination cursor until caught up with `tip`. Returns the highest
 /// ledger whose events were processed.
@@ -130,8 +248,7 @@ async function processEvents(server: Server, startLedger: number, tip: number): 
       }
       const parsed = parseEvent(event);
       if (parsed) {
-        // Persistence is wired in a later step; for now the decoded event
-        // is logged so the pipeline can be observed.
+        await persistEvent(parsed);
         console.log(
           `[listener] ${parsed.topicName} agreement=${parsed.agreementId} ledger=${parsed.ledger}`,
         );
@@ -153,7 +270,10 @@ async function processEvents(server: Server, startLedger: number, tip: number): 
 }
 
 /// Starts the polling loop. Soroban RPC has no push mechanism, so events
-/// are polled on a short interval.
+/// are polled on a short interval. Ledger rollbacks are detected by
+/// comparing the checkpoint against the RPC tip; when the chain has
+/// rolled back behind the checkpoint, state is rebuilt from scratch so
+/// the indexer cannot silently drift out of sync.
 export function startListener(): { stop: () => void } {
   if (!config.contractId) {
     console.warn('[listener] CONTRACT_ID is not set; the event listener will not start');
@@ -167,10 +287,21 @@ export function startListener(): { stop: () => void } {
   const tick = async (): Promise<void> => {
     try {
       const latest = await server.getLatestLedger();
-      // The resume point is the configured start ledger until the
-      // checkpoint persistence lands in a later step.
-      const start = config.startLedger;
-      const highest = await processEvents(server, start, latest.sequence);
+      let lastProcessed = await readCheckpoint();
+
+      if (lastProcessed > latest.sequence) {
+        console.warn(
+          `[listener] rollback detected: checkpoint ${lastProcessed} is ahead of tip ` +
+            `${latest.sequence}; rebuilding state`,
+        );
+        await pool.query('DELETE FROM agreement_events');
+        await pool.query('DELETE FROM agreements');
+        lastProcessed = config.startLedger;
+        await writeCheckpoint(lastProcessed);
+      }
+
+      const highest = await processEvents(server, lastProcessed, latest.sequence);
+      await writeCheckpoint(highest);
       console.log(`[listener] caught up through ledger ${highest} (tip ${latest.sequence})`);
     } catch (err) {
       console.error('[listener] poll failed', err);
