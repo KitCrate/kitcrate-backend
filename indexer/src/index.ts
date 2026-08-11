@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 
 import express from 'express';
 
+import { agreementsRouter } from './api/agreements.js';
 import { config } from './config.js';
 import { initDb } from './db/client.js';
 import { startListener } from './listener.js';
@@ -15,6 +16,8 @@ export async function main(): Promise<void> {
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
+
+  app.use('/agreements', agreementsRouter);
 
   const server = app.listen(config.port, () => {
     console.log(`[api] KitCrate indexer API listening on http://localhost:${config.port}`);
