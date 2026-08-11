@@ -5,10 +5,24 @@ use soroban_sdk::{Address, String};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
 
-use common::{setup, setup_no_auth};
+use common::{balance, mint, setup, setup_no_auth, TestEnv};
 
 fn item_ref(env: &soroban_sdk::Env, value: &str) -> String {
     String::from_str(env, value)
+}
+
+/// Create a standard agreement (rental 1000, deposit 500, one-day window).
+fn create_agreement(t: &TestEnv, item: &String) -> u64 {
+    t.client().create_agreement(
+        &t.owner,
+        &t.renter,
+        item,
+        &1000i128,
+        &500i128,
+        &1_700_000_000u64,
+        &1_700_086_400u64,
+        &86_400u64,
+    )
 }
 
 #[test]
@@ -55,18 +69,8 @@ fn initialize_requires_admin_auth() {
 #[test]
 fn create_agreement_stores_a_created_agreement() {
     let t = setup();
-    let client = t.client();
     let item = item_ref(&t.env, "listing-abc-123");
-    let id = client.create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &500i128,
-        &1_700_000_000u64,
-        &1_700_086_400u64,
-        &86_400u64,
-    );
+    let id = create_agreement(&t, &item);
     assert_eq!(id, 1);
 
     let stored: RentalAgreement = t
@@ -190,5 +194,65 @@ fn create_agreement_requires_owner_auth() {
         &2,
         &86_400u64,
     );
+    assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn fund_agreement_transfers_rental_plus_deposit() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 1500);
+    t.client().fund_agreement(&t.renter, &id);
+
+    assert_eq!(balance(&t.env, &t.token, &t.renter), 0);
+    assert_eq!(balance(&t.env, &t.token, &t.contract_id), 1500);
+    let stored: RentalAgreement = t
+        .env
+        .as_contract(&t.contract_id, || {
+            t.env
+                .storage()
+                .persistent()
+                .get(&DataKey::Agreement(id))
+                .unwrap()
+        });
+    assert_eq!(stored.status, AgreementStatus::Funded);
+}
+
+#[test]
+fn fund_agreement_twice_fails() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    mint(&t.env, &t.token, &t.renter, 3000);
+    t.client().fund_agreement(&t.renter, &id);
+    let res = t.client().try_fund_agreement(&t.renter, &id);
+    assert!(matches!(res, Err(Ok(RentalError::AlreadyFunded))));
+}
+
+#[test]
+fn fund_agreement_rejects_third_party() {
+    let t = setup();
+    let item = item_ref(&t.env, "listing-1");
+    let id = create_agreement(&t, &item);
+    let stranger = Address::generate(&t.env);
+    let res = t.client().try_fund_agreement(&stranger, &id);
+    assert!(matches!(res, Err(Ok(RentalError::Unauthorized))));
+}
+
+#[test]
+fn fund_agreement_rejects_unknown_id() {
+    let t = setup();
+    let res = t.client().try_fund_agreement(&t.renter, &42);
+    assert!(matches!(res, Err(Ok(RentalError::NotFound))));
+}
+
+#[test]
+fn fund_agreement_requires_renter_auth() {
+    let t = setup_no_auth();
+    let client = t.client();
+    // Auth is checked before business logic, so even an unknown id fails
+    // at the host level when the renter has not authorized the call.
+    let res = client.try_fund_agreement(&t.renter, &999);
     assert!(matches!(res, Err(Err(_))));
 }
