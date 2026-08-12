@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 
 import express from 'express';
+import cors from 'cors';
 
 import { agreementsRouter } from './api/agreements.js';
 import { listingsRouter } from './api/listings.js';
@@ -12,6 +13,7 @@ export async function main(): Promise<void> {
   await initDb();
 
   const app = express();
+  app.use(cors({ origin: 'http://localhost:3001' }));
   app.use(express.json());
 
   app.get('/health', (_req, res) => {
