@@ -31,11 +31,12 @@ impl RentalEscrow {
         Ok(())
     }
 
-    /// Creates a new rental agreement. Auth: `owner`. Validates that the
+    /// Creates a new rental agreement. Auth: `renter`. Validates that the
     /// rental period is well-formed and both amounts are positive, then
     /// stores the agreement as `Created` and returns its id. Real-world
-    /// action: the owner accepting a rental request from a renter for a
-    /// specific item over a specific period.
+    /// action: the renter initiating a booking against an owner's listing
+    /// for a specific item over a specific period. No funds move here;
+    /// the renter locks payment separately via `fund_agreement`.
     pub fn create_agreement(
         env: &Env,
         owner: Address,
@@ -47,7 +48,7 @@ impl RentalEscrow {
         end_time: u64,
         claim_window_secs: u64,
     ) -> Result<u64, RentalError> {
-        owner.require_auth();
+        renter.require_auth();
         if owner == renter {
             return Err(RentalError::SameOwnerAndRenter);
         }

@@ -1,6 +1,6 @@
 mod common;
 
-use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
@@ -200,13 +200,56 @@ fn create_agreement_rejects_same_owner_and_renter() {
 }
 
 #[test]
-fn create_agreement_requires_owner_auth() {
+fn create_agreement_requires_renter_auth() {
     let t = setup_no_auth();
     let client = t.client();
     let item = item_ref(&t.env, "listing-1");
-    // The caller authorizes only as the renter, never as the owner.
+    // No auth is mocked, so the required renter.require_auth() fails at the
+    // host level before any business logic runs.
     let res = client.try_create_agreement(
+        &t.owner,
         &t.renter,
+        &item,
+        &1000i128,
+        &500i128,
+        &1,
+        &2,
+        &86_400u64,
+    );
+    assert!(matches!(res, Err(Err(_))));
+}
+
+#[test]
+fn create_agreement_rejects_owner_signature() {
+    let t = setup_no_auth();
+    let client = t.client();
+    let item = item_ref(&t.env, "listing-1");
+    // Only the owner authorizes the call. Because create_agreement now
+    // requires the renter's signature (the renter initiates the booking),
+    // the missing renter auth must still fail at the host level even though
+    // the owner signed. `Err(Err(_))` is a host-level auth failure, not a
+    // business-logic error.
+    t.env.mock_auths(&[MockAuth {
+        address: &t.owner,
+        invoke: &MockAuthInvoke {
+            contract: &t.contract_id,
+            fn_name: "create_agreement",
+            args: (
+                t.owner.clone(),
+                t.renter.clone(),
+                item.clone(),
+                1000i128,
+                500i128,
+                1u64,
+                2u64,
+                86_400u64,
+            )
+                .into_val(&t.env),
+            sub_invokes: &[],
+        },
+    }]);
+    let res = client.try_create_agreement(
+        &t.owner,
         &t.renter,
         &item,
         &1000i128,
