@@ -48,6 +48,9 @@ impl RentalEscrow {
         claim_window_secs: u64,
     ) -> Result<u64, RentalError> {
         owner.require_auth();
+        if owner == renter {
+            return Err(RentalError::SameOwnerAndRenter);
+        }
         if rental_amount <= 0 || deposit_amount <= 0 {
             return Err(RentalError::InvalidAmount);
         }

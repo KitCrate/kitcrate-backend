@@ -179,6 +179,27 @@ fn create_agreement_rejects_inverted_time_range() {
 }
 
 #[test]
+fn create_agreement_rejects_same_owner_and_renter() {
+    let t = setup();
+    let client = t.client();
+    let item = item_ref(&t.env, "listing-1");
+    // Owner and renter are the same address: this must return a clean error,
+    // not panic. `try_*` surfaces a business-logic error as `Err(Ok(_))`; a
+    // host-level panic would instead show up as `Err(Err(_))`.
+    let res = client.try_create_agreement(
+        &t.owner,
+        &t.owner,
+        &item,
+        &1000i128,
+        &500i128,
+        &1_700_000_000u64,
+        &1_700_086_400u64,
+        &86_400u64,
+    );
+    assert!(matches!(res, Err(Ok(RentalError::SameOwnerAndRenter))));
+}
+
+#[test]
 fn create_agreement_requires_owner_auth() {
     let t = setup_no_auth();
     let client = t.client();

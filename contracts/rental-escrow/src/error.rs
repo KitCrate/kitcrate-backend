@@ -32,4 +32,6 @@ pub enum RentalError {
     InvalidTimeRange = 10,
     /// An arithmetic operation overflowed u64 or i128.
     Overflow = 11,
+    /// The owner and renter are the same address; a party cannot rent to itself.
+    SameOwnerAndRenter = 12,
 }
