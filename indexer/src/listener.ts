@@ -235,12 +235,18 @@ async function persistEvent(event: ParsedEvent): Promise<PersistOutcome> {
       return 'inserted';
     }
     await client.query('COMMIT');
+    // Compare against the indexed copy. `data` is compared with jsonb
+    // equality (`=`), which is semantic: it ignores object key order and
+    // whitespace, so a re-fetched event that carries the same values can
+    // never false-positive. A plain string comparison would, because
+    // Postgres normalizes jsonb key order on insert while
+    // JSON.stringify preserves the contract's emission order.
     const stored = await client.query(
-      'SELECT topic, data::text AS data FROM agreement_events WHERE id = $1',
-      [event.eventId],
+      `SELECT topic, data = $2::jsonb AS data_matches FROM agreement_events WHERE id = $1`,
+      [event.eventId, JSON.stringify(event.data)],
     );
     const row = stored.rows[0];
-    if (row && (row.topic !== event.topicName || row.data !== JSON.stringify(event.data))) {
+    if (row && (row.topic !== event.topicName || !row.data_matches)) {
       return 'changed';
     }
     return 'duplicate';
@@ -296,15 +302,41 @@ async function processEvents(
       }
     }
 
-    if (response.events.length === 0 || highest >= tip) {
+    if (highest >= tip) {
       break;
     }
-    if (!response.cursor) {
+    // Soroban RPC paginates by an internal ledger window (roughly ten
+    // thousand ledgers per page on the public testnet) and only includes a
+    // cursor when more ledgers remain to scan. Empty pages are therefore
+    // normal mid-scan and must not stop the loop; the RPC terminates the
+    // scan by pinning the cursor at the tip (repeating it unchanged), which
+    // is the signal that we have caught up.
+    if (!response.cursor || response.cursor === cursor) {
       break;
     }
     cursor = response.cursor;
   }
   return { highest, reorgDetected };
+}
+
+/// The public Soroban RPC occasionally drops a connection (undici connect
+/// timeouts, e.g. against the IPv6-mapped Cloudflare addresses on this
+/// network). getLatestLedger is the cheapest call in the poll and the one
+/// that fails most often; retrying it a couple of times keeps a transient
+/// blip from skipping an entire poll.
+async function getLatestLedgerWithRetry(server: Server): Promise<number> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const latest = await server.getLatestLedger();
+      return latest.sequence;
+    } catch (err) {
+      if (attempt >= 3) {
+        throw err;
+      }
+      console.warn(`[listener] getLatestLedger failed (attempt ${attempt}); retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
 }
 
 /// Starts the polling loop. Soroban RPC has no push mechanism, so events
@@ -329,20 +361,20 @@ export function startListener(): { stop: () => void } {
       const maxRebuilds = 5;
       let rebuilds = 0;
       for (;;) {
-        const latest = await server.getLatestLedger();
+        const latestSequence = await getLatestLedgerWithRetry(server);
         const lastProcessed = await readCheckpoint();
 
-        if (lastProcessed > latest.sequence) {
+        if (lastProcessed > latestSequence) {
           console.warn(
             `[listener] rollback detected: checkpoint ${lastProcessed} is ahead of tip ` +
-              `${latest.sequence}; rebuilding state`,
+              `${latestSequence}; rebuilding state`,
           );
           await rebuildState();
         } else {
           const { highest, reorgDetected } = await processEvents(
             server,
             lastProcessed,
-            latest.sequence,
+            latestSequence,
           );
           if (reorgDetected) {
             console.warn(
