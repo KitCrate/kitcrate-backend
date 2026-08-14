@@ -216,11 +216,12 @@ async function persistEvent(event: ParsedEvent): Promise<PersistOutcome> {
   try {
     await client.query('BEGIN');
     const inserted = await client.query(
-      `INSERT INTO agreement_events (id, ledger_seq, event_index, agreement_id, topic, data)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO agreement_events (id, contract_id, ledger_seq, event_index, agreement_id, topic, data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO NOTHING`,
       [
         event.eventId,
+        config.contractId,
         event.ledger,
         event.eventIndex,
         event.agreementId,
