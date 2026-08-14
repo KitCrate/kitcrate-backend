@@ -8,6 +8,11 @@
 // `agreements` is the current-state table derived from events, one row
 // per agreement, updated by each event in ledger order.
 //
+// Both tables carry `contract_id` (the CONTRACT_ID this indexer watches)
+// so rows from different contract deployments never collide: the
+// contract's agreement counter restarts at 1 on every redeploy, so the
+// `agreements` primary key is the composite (contract_id, id).
+//
 // `listings` is app-side metadata only. It is referenced on-chain only
 // through the opaque `item_ref` string; nothing here ever reaches the
 // contract.
@@ -16,7 +21,8 @@
 // ledger) used to resume polling after a restart.
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS agreements (
-  id BIGINT PRIMARY KEY,
+  contract_id TEXT NOT NULL,
+  id BIGINT NOT NULL,
   owner TEXT NOT NULL,
   renter TEXT NOT NULL,
   item_ref TEXT NOT NULL,
@@ -29,11 +35,13 @@ CREATE TABLE IF NOT EXISTS agreements (
   created_at BIGINT NOT NULL,
   created_ledger BIGINT NOT NULL,
   updated_ledger BIGINT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (contract_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS agreement_events (
   id TEXT PRIMARY KEY,
+  contract_id TEXT NOT NULL,
   ledger_seq BIGINT NOT NULL,
   event_index INT NOT NULL,
   agreement_id BIGINT NOT NULL,
@@ -44,7 +52,7 @@ CREATE TABLE IF NOT EXISTS agreement_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agreement_events_agreement
-  ON agreement_events (agreement_id, ledger_seq, event_index);
+  ON agreement_events (contract_id, agreement_id, ledger_seq, event_index);
 CREATE INDEX IF NOT EXISTS idx_agreement_events_ledger
   ON agreement_events (ledger_seq);
 

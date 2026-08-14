@@ -32,6 +32,7 @@ kitcrate-backend/
 │   │   ├── api/agreements.ts   # Agreement REST endpoints
 │   │   ├── api/listings.ts     # Listing CRUD endpoints
 │   │   └── config.ts           # Environment configuration
+│   ├── migrations/             # Numbered SQL migrations for schema changes
 │   ├── docker-compose.yml      # Local Postgres for development
 │   └── package.json
 ├── Cargo.toml                  # Rust workspace root
@@ -115,6 +116,37 @@ indexer can derive a usable current-state table from events alone:
 
 ## Indexer
 
+### Contract scoping and migrations
+
+The indexer only ever watches the single contract named by `CONTRACT_ID`.
+Every row in `agreements` and `agreement_events` carries that contract id,
+and the `agreements` primary key is the composite `(contract_id, id)`. This
+matters because the contract's agreement counter restarts at 1 on every
+redeploy: without the contract scope, agreement 1 from a fresh deployment
+would collide with agreement 1 from a previous deployment still in the
+database. Agreement REST lookups are always scoped to `CONTRACT_ID` for the
+same reason.
+
+Schema changes are recorded as numbered SQL files in `indexer/migrations/`
+(the project has no migration framework; fresh databases are created from
+`src/db/schema.ts` on startup, migrations bring existing databases up to
+date). To apply pending migrations from the `indexer/` directory:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_add_contract_id.sql
+```
+
+or, when Postgres runs in the docker-compose container (`make db-up`):
+
+```sh
+docker exec -i kitcrate-db psql -U kitcrate -d kitcrate < migrations/001_add_contract_id.sql
+```
+
+`001_add_contract_id.sql` adds the `contract_id` column, switches the
+`agreements` primary key to `(contract_id, id)`, and resets the indexer
+checkpoint so the listener re-indexes from `START_LEDGER`. It drops the
+existing (testnet, valueless) agreement rows rather than backfilling them.
+
 ### Idempotency and rollbacks
 
 - Every event is keyed by its Soroban RPC event id (TOID based). Inserts
@@ -135,9 +167,9 @@ indexer can derive a usable current-state table from events alone:
 
 ### REST API
 
-- `GET /agreements/:id`
-- `GET /agreements?owner=&renter=&status=`
-- `GET /agreements/:id/events`
+- `GET /agreements/:id` (scoped to the configured `CONTRACT_ID`)
+- `GET /agreements?owner=&renter=&status=` (scoped to the configured `CONTRACT_ID`)
+- `GET /agreements/:id/events` (scoped to the configured `CONTRACT_ID`)
 - `GET /listings?owner=`, `GET /listings/:id`
 - `POST /listings`, `PUT /listings/:id`, `DELETE /listings/:id`
 - `GET /health`

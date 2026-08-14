@@ -149,7 +149,10 @@ async function writeCheckpoint(ledger: number): Promise<void> {
 
 /// Applies a single event to the derived `agreements` current-state
 /// table. `agreement_created` carries the full agreement as a named map;
-/// every other event only flips the status.
+/// every other event only flips the status. Every row is scoped by the
+/// configured contract id so a redeployed contract (whose agreement
+/// counter restarts at 1) can never collide with rows from a previous
+/// deployment.
 async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Promise<void> {
   const { topicName, agreementId, ledger, data } = parsed;
   switch (topicName) {
@@ -158,11 +161,12 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
       const statusIndex = Number(d.status ?? 0);
       await client.query(
         `INSERT INTO agreements (
-           id, owner, renter, item_ref, rental_amount, deposit_amount,
-           start_time, end_time, claim_window_secs, status, created_at,
-           created_ledger, updated_ledger
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+           contract_id, id, owner, renter, item_ref, rental_amount,
+           deposit_amount, start_time, end_time, claim_window_secs, status,
+           created_at, created_ledger, updated_ledger
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
+          config.contractId,
           agreementId,
           d.owner,
           d.renter,
@@ -185,11 +189,10 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
       if (!status) {
         return;
       }
-      await client.query('UPDATE agreements SET status = $1, updated_ledger = $2 WHERE id = $3', [
-        status,
-        ledger,
-        agreementId,
-      ]);
+      await client.query(
+        'UPDATE agreements SET status = $1, updated_ledger = $2 WHERE contract_id = $3 AND id = $4',
+        [status, ledger, config.contractId, agreementId],
+      );
     }
   }
 }
