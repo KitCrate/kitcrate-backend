@@ -1,240 +1,78 @@
-# KitCrate Backend
+# KitCrate
 
-Peer-to-peer marketplace backend for renting physical equipment (tools,
-cameras, construction gear, event equipment). Renters and owners agree on a
-rental period and a security deposit. The deposit is held in a non-custodial
-[Soroban](https://developers.stellar.org/docs/build/smart-contracts/overview)
-smart contract, not by either party or a platform. If no damage claim is
-raised within a claim window after the rental ends, the deposit
-auto-refunds. If a claim is raised, a designated arbiter resolves the split.
+**Peer-to-peer equipment rental, secured by a non-custodial Soroban escrow.**
 
-## Repository layout
+![Network: Testnet](https://img.shields.io/badge/network-testnet-3d5afe)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-```
-kitcrate-backend/
-├── contracts/
-│   └── rental-escrow/          # The Soroban smart contract (Rust)
-│       ├── src/
-│       │   ├── lib.rs          # Contract declaration, module wiring
-│       │   ├── types.rs        # DataKey, RentalAgreement, AgreementStatus
-│       │   ├── storage.rs      # Instance and persistent storage helpers
-│       │   ├── agreement.rs    # create, fund, start, release, cancel
-│       │   ├── dispute.rs      # raise_claim, resolve_dispute
-│       │   ├── events.rs       # Event emission helpers
-│       │   └── error.rs        # RentalError contract errors
-│       └── tests/              # Integration tests per major flow
-├── indexer/                    # Event indexer + REST API (TypeScript)
-│   ├── src/
-│   │   ├── index.ts            # Entrypoint: API server + listener
-│   │   ├── listener.ts         # Polls contract events via Soroban RPC
-│   │   ├── db/schema.ts        # Postgres schema
-│   │   ├── db/client.ts        # Connection pool
-│   │   ├── api/agreements.ts   # Agreement REST endpoints
-│   │   ├── api/listings.ts     # Listing CRUD endpoints
-│   │   └── config.ts           # Environment configuration
-│   ├── migrations/             # Numbered SQL migrations for schema changes
-│   ├── docker-compose.yml      # Local Postgres for development
-│   └── package.json
-├── Cargo.toml                  # Rust workspace root
-├── Makefile
-└── README.md
-```
+No CI is configured for this repository yet (no `.github/workflows/`), so there is no build-status badge.
+
+## What this is
+
+KitCrate is a peer-to-peer marketplace for renting physical equipment: tools, cameras, construction gear, and event equipment. Renters and owners agree on a rental period and a security deposit. This repository holds the two pieces that make the deposit trustworthy without a platform holding the money: the `RentalEscrow` Soroban smart contract, which locks the rental fee and deposit on-chain and releases them by fixed rules instead of a company's discretion, and the indexer, a Node.js service that reads the contract's events, keeps a queryable copy of agreement and listing state in Postgres, and serves it over a REST API.
+
+## Links
+
+- **Docs:** [kitcrate.github.io/kitcrate-backend](https://kitcrate.github.io/kitcrate-backend/)
+- **Frontend repo:** [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend)
+- **Live indexer API:** [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com)
+- **Deployed testnet contract:** `CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5` ([view on stellar.expert](https://stellar.expert/explorer/testnet/contract/CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5))
+
+## Maintainer
+
+GitHub: [@Hollujay](https://github.com/Hollujay)
+Telegram: [@Hollujay21](https://t.me/Hollujay21)
 
 ## Architecture
 
-Two components, connected by on-chain events:
+Two pieces, connected only by on-chain events:
 
-1. **Contract** (`contracts/rental-escrow`): a `no_std` Rust crate built with
-   `soroban-sdk 27.0.5`. All state transitions emit events. The contract
-   never holds more than the escrowed funds and every movement of tokens
-   goes through the SEP-41 token contract's own `transfer` function.
+- **`contracts/rental-escrow`**: a `no_std` Rust crate built with `soroban-sdk 27.0.5`. Every state transition (create, fund, start, dispute, resolve, release, cancel) emits an event. The contract never moves funds except through the escrow token's own `transfer` function.
+- **`indexer/`**: a TypeScript service that polls the Soroban RPC for those events, persists them idempotently to Postgres, derives a current-state `agreements` table from them, and exposes it (plus listing CRUD) over a REST API. The frontend reads through this API rather than the chain directly.
 
-2. **Indexer** (`indexer`): a Node.js/TypeScript service that polls the
-   Soroban RPC `getEvents` endpoint on a short interval (RPC has no push
-   mechanism), persists every event to Postgres idempotently, derives a
-   current-state `agreements` table from the events, and exposes REST
-   endpoints for the frontend. Listing metadata (titles, photos,
-   descriptions, location) is off-chain only and lives entirely in
-   Postgres, referenced on-chain by the opaque `item_ref` string.
+For the full agreement state machine, every function's auth and effect, and a worked numeric example, see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) on the docs site. For every function signature and error code, see [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html).
 
-## Contract specification
+## Quick start
 
-Contract name: `RentalEscrow`.
+Prerequisites: Rust (rustc >= 1.91), the [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools#cli), Node.js >= 20, Docker.
 
-### Storage
-
-- `instance` storage holds the small config values: `Admin`, `Arbiter`,
-  `Token`, `NextId`.
-- `persistent` storage holds one `RentalAgreement` per id. Every write
-  explicitly calls `extend_ttl` (target: one year of ledgers), so an
-  agreement can never expire mid-rental or during a claim window. Nothing
-  uses `temporary` storage: nothing in this contract is safe to lose.
-
-### Functions
-
-| Function | Auth | Requires | Effect |
-| --- | --- | --- | --- |
-| `initialize(admin, arbiter, token)` | admin | not yet initialized | stores config, one-time setup |
-| `create_agreement(owner, renter, item_ref, rental_amount, deposit_amount, start_time, end_time, claim_window_secs) -> u64` | owner | amounts > 0, end_time > start_time | stores agreement as `Created`, returns id |
-| `fund_agreement(renter, id)` | renter | status `Created`, caller is the stored renter | transfers rental + deposit from renter to the contract, status `Funded` |
-| `start_rental(owner, id)` | owner | status `Funded` | confirms handover, status `Active` |
-| `raise_claim(owner, id, claim_amount, evidence_ref)` | owner | status `Active`, `now <= end_time + claim_window_secs`, claim <= deposit | status `Disputed` |
-| `resolve_dispute(arbiter, id, amount_to_owner)` | arbiter | status `Disputed`, 0 <= amount_to_owner <= deposit | splits deposit and pays rental to owner, status `Resolved` |
-| `release_funds(id)` | none (permissionless) | status `Active`, `now > end_time + claim_window_secs` | returns deposit to renter, rental to owner, status `Completed` |
-| `cancel_agreement(caller, id)` | caller is owner or renter | status `Created` | status `Cancelled` |
-
-Every state-changing function calls `require_auth()` on the address that
-must approve the action, and then verifies that address against the stored
-agreement before trusting it. Business-logic failures return
-`Result<_, RentalError>`; panics are reserved for host-level conditions.
-
-### Events
-
-Every state transition emits an event with a short symbol topic and the
-agreement id as the second topic element, so indexers can filter on
-`(contract, topic[0])` and read the id from `topic[1]`.
-
-| Topic | Data payload |
-| --- | --- |
-| `agreement_created` | full agreement as a named map (`id`, `owner`, `renter`, `item_ref`, `rental_amount`, `deposit_amount`, `start_time`, `end_time`, `claim_window_secs`, `status`, `created_at`) |
-| `agreement_funded` | `[id, amount]` |
-| `rental_started` | `id` |
-| `claim_raised` | `[id, claim_amount, evidence_ref]` |
-| `dispute_resolved` | `[id, amount_to_owner, amount_to_renter]` |
-| `funds_released` | `id` |
-| `agreement_cancelled` | `id` |
-
-Two deliberate extensions to the base event table, both required so the
-indexer can derive a usable current-state table from events alone:
-
-1. `agreement_created` carries the full agreement (the minimal
-   `id, owner, renter` payload would not include the amounts, times or
-   item ref the indexer needs).
-2. `claim_raised` appends `evidence_ref`, the opaque off-chain evidence
-   pointer (IPFS hash or app URL), which would otherwise have no on-chain
-   trace at all. It is never interpreted on-chain.
-
-## Indexer
-
-### Contract scoping and migrations
-
-The indexer only ever watches the single contract named by `CONTRACT_ID`.
-Every row in `agreements` and `agreement_events` carries that contract id,
-and the `agreements` primary key is the composite `(contract_id, id)`. This
-matters because the contract's agreement counter restarts at 1 on every
-redeploy: without the contract scope, agreement 1 from a fresh deployment
-would collide with agreement 1 from a previous deployment still in the
-database. Agreement REST lookups are always scoped to `CONTRACT_ID` for the
-same reason.
-
-Schema changes are recorded as numbered SQL files in `indexer/migrations/`
-(the project has no migration framework; fresh databases are created from
-`src/db/schema.ts` on startup, migrations bring existing databases up to
-date). To apply pending migrations from the `indexer/` directory:
+**Build the contract:**
 
 ```sh
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/001_add_contract_id.sql
+stellar contract build --package rental-escrow
 ```
 
-or, when Postgres runs in the docker-compose container (`make db-up`):
+Tested against this repo: produces `target/wasm32v1-none/release/rental_escrow.wasm` and reports 8 exported functions. `make wasm` runs the equivalent `cargo build` directly, if you'd rather not use the Stellar CLI.
+
+**Run the contract tests:**
 
 ```sh
-docker exec -i kitcrate-db psql -U kitcrate -d kitcrate < migrations/001_add_contract_id.sql
+cargo test
 ```
 
-`001_add_contract_id.sql` adds the `contract_id` column, switches the
-`agreements` primary key to `(contract_id, id)`, and resets the indexer
-checkpoint so the listener re-indexes from `START_LEDGER`. It drops the
-existing (testnet, valueless) agreement rows rather than backfilling them.
-
-### Idempotency and rollbacks
-
-- Every event is keyed by its Soroban RPC event id (TOID based). Inserts
-  use `ON CONFLICT DO NOTHING`, and the state transition is applied only
-  when the event row was actually new, inside the same transaction.
-  Reprocessing the same event (restart, re-fetch at a ledger boundary) can
-  never duplicate rows or double-apply a transition. The
-  `(ledger_seq, event_index)` unique constraint is a second guard.
-- A `sync_state` table stores the last processed ledger. Reorgs are
-  detected two ways: the listener compares the checkpoint with the RPC
-  tip (rollback behind the checkpoint), and compares any conflicting
-  re-fetched event against its indexed copy (same-height reorgs that
-  change event content). Either way the indexer wipes both tables and
-  rebuilds from `START_LEDGER`, so it can never silently drift out of
-  sync. The full rebuild is intentional: with the dataset sizes this
-  project targets, it is simpler and more correct than surgically
-  patching rolled-back ledgers.
-
-### REST API
-
-- `GET /agreements/:id` (scoped to the configured `CONTRACT_ID`)
-- `GET /agreements?owner=&renter=&status=` (scoped to the configured `CONTRACT_ID`)
-- `GET /agreements/:id/events` (scoped to the configured `CONTRACT_ID`)
-- `GET /listings?owner=`, `GET /listings/:id`
-- `POST /listings`, `PUT /listings/:id`, `DELETE /listings/:id`
-- `GET /health`
-
-## Setup
-
-Prerequisites: Rust (rustc >= 1.91), Node.js >= 20, Docker.
-
-### Contract
+**Run the indexer locally:**
 
 ```sh
-make contract-build     # cargo build
-make contract-test      # cargo test (the full integration suite)
-make wasm               # build the deployable wasm (wasm32v1-none target)
-```
-
-Deploy to testnet with the Stellar CLI (build first, then):
-
-```sh
-stellar contract deploy \
-  --wasm target/wasm32v1-none/release/rental_escrow.wasm \
-  --source <deployer-account> --network testnet
-```
-
-Then call `initialize` with the admin, arbiter and token addresses before
-creating agreements.
-
-### Indexer
-
-```sh
-make db-up               # start local Postgres (indexer/docker-compose.yml)
+make db-up                 # starts local Postgres, indexer/docker-compose.yml
 cd indexer
-cp .env.example .env     # set CONTRACT_ID to the deployed contract id
+cp .env.example .env       # then set CONTRACT_ID to a deployed contract id
 npm install
-npm run dev              # or: npm run build && npm start
+npm run dev
 ```
 
-The API listens on `PORT` (default 3000) and the listener polls
-`RPC_URL` (default Soroban testnet) every `POLL_INTERVAL_MS`
-(default 5000 ms). Set `START_LEDGER` to the ledger where the contract was
-deployed (or slightly earlier); the RPC node only retains recent history.
+Real variables from `indexer/.env.example`: `RPC_URL`, `CONTRACT_ID`, `DATABASE_URL`, `PORT`, `POLL_INTERVAL_MS`, `START_LEDGER`.
 
-## Known scope limits (deliberate, not bugs)
+**Indexer tests:** there currently is no test script. `indexer/package.json` defines `build`, `typecheck`, `dev`, and `start` only, and there are no `*.test.ts` files in the repo. This is a real gap, not an oversight to paper over.
 
-- Funded agreements cannot be cancelled in v1. There is no
-  mutual-consent cancellation path; cancellation is allowed only while an
-  agreement is `Created`.
-- There is no partial refund mechanism other than the arbiter's
-  `resolve_dispute` path.
-- No multi-token support, token swaps, or interest/yield logic.
-- Listing metadata is off-chain only, in Postgres. Nothing but the opaque
-  `item_ref` string ever reaches the chain.
+## Contributing
 
-## Design notes
+There is no `CONTRIBUTING.md` in this repository yet. The Contributing page on the docs site describes what's actually in place today (commit conventions observed in the history, what to run before opening a PR) until a formal one is written.
 
-- All amounts are `i128` integers in the token's smallest unit. No
-  floating-point math anywhere in the contract. The indexer stores them
-  as exact `NUMERIC` values and decodes on-chain integers to decimal
-  strings (they can exceed JavaScript's safe integer range).
-- The escrow token is set once at `initialize` and all transfers use the
-  token contract's own `transfer` function; funds never move by any other
-  path.
-- The REST API returns Postgres `NUMERIC` amounts as strings (standard
-  `pg` behavior); parse them client-side or cast in SQL if you need
-  numbers.
-- A failed token transfer aborts and reverts the whole transaction at the
-  host level, which is the correct escrow behavior: no partial state
-  changes.
+## Known limitations
+
+- **Render free-tier hosting.** The live indexer sleeps after a period of inactivity; the first request afterward can take up to about 50 seconds. The free Postgres database expires 30 days after creation and has to be recreated.
+- **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message; the contract itself has no awareness of it; it's a property of how Stellar account auth works against any `require_auth()` call.
+
+## License
+
+[MIT](./LICENSE).
