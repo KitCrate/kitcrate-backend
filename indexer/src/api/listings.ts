@@ -15,6 +15,19 @@ interface ListingInput {
   deposit?: unknown;
 }
 
+// Agreement statuses that occupy a listing: the renter has funded the
+// agreement (money has moved) and the item is not yet free again. A
+// `Created` agreement is unfunded and does not block the listing;
+// `Completed` and `Cancelled` release it. Correlation is on
+// `agreements.item_ref = listings.id` — the frontend passes `listing.id`
+// as `itemRef` when building create_agreement (see BookingPanel), so the
+// opaque on-chain item_ref string is exactly the listing id.
+const CURRENTLY_BOOKED_SQL = `EXISTS (
+    SELECT 1 FROM agreements a
+    WHERE a.item_ref = l.id
+      AND a.status IN ('Funded', 'Active', 'Disputed', 'Resolved')
+  ) AS currently_booked`;
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -61,15 +74,18 @@ function normalizeListing(body: ListingInput):
 listingsRouter.get('/', async (req, res) => {
   const owner = typeof req.query.owner === 'string' ? req.query.owner : undefined;
   const sql = owner
-    ? 'SELECT * FROM listings WHERE owner = $1 ORDER BY created_at DESC'
-    : 'SELECT * FROM listings ORDER BY created_at DESC';
+    ? `SELECT l.*, ${CURRENTLY_BOOKED_SQL} FROM listings l WHERE l.owner = $1 ORDER BY l.created_at DESC`
+    : `SELECT l.*, ${CURRENTLY_BOOKED_SQL} FROM listings l ORDER BY l.created_at DESC`;
   const result = await pool.query(sql, owner ? [owner] : []);
   res.json(result.rows);
 });
 
 /// GET /listings/:id
 listingsRouter.get('/:id', async (req, res) => {
-  const result = await pool.query('SELECT * FROM listings WHERE id = $1', [req.params.id]);
+  const result = await pool.query(
+    `SELECT l.*, ${CURRENTLY_BOOKED_SQL} FROM listings l WHERE l.id = $1`,
+    [req.params.id],
+  );
   if (result.rows.length === 0) {
     res.status(404).json({ error: 'listing not found' });
     return;
