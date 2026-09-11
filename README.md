@@ -66,7 +66,7 @@ Real variables from `indexer/.env.example`: `RPC_URL`, `CONTRACT_ID`, `DATABASE_
 
 ## Contributing
 
-There is no `CONTRIBUTING.md` in this repository yet. The Contributing page on the docs site describes what's actually in place today (commit conventions observed in the history, what to run before opening a PR) until a formal one is written.
+See [CONTRIBUTING.md](./CONTRIBUTING.md): this project isn't currently accepting outside contributions.
 
 ## Known limitations
 
