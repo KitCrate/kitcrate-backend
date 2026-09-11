@@ -1,0 +1,13 @@
+title: KitCrate Docs
+description: >-
+  Documentation for KitCrate, a peer-to-peer equipment rental marketplace
+  with security deposits held in a non-custodial Soroban smart contract.
+theme: minima
+baseurl: "/kitcrate-backend"
+header_pages:
+  - for-owners.md
+  - for-renters.md
+  - protocol-mechanics.md
+  - contract-reference.md
+  - developer-guide.md
+  - contributing.md
