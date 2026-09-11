@@ -22,7 +22,16 @@ export async function main(): Promise<void> {
   await initDb();
 
   const app = express();
-  app.use(cors({ origin: 'http://localhost:3001' }));
+  // Allowed browser origins for the REST API. Configurable via CORS_ORIGIN
+  // (comma-separated list) so the deployed frontend's URL can be added
+  // without a code change; falls back to the local dev frontend. Set
+  // CORS_ORIGIN to the Vercel URL (e.g. https://kitcrate.vercel.app) in
+  // production.
+  const allowedOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  app.use(cors({ origin: allowedOrigins }));
   app.use(express.json());
 
   app.get('/health', (_req, res) => {
