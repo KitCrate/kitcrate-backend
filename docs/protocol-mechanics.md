@@ -136,11 +136,18 @@ That's a deliberate scope limit of the current contract, not a bug.
 
 ## Worked example: an 80.00 USDC rental, 20.00 USDC deposit
 
-The numbers below come directly from the transfer calls in
-`agreement.rs` and `dispute.rs`, not from an assumption. Amounts are shown
-as decimal USDC for readability; on-chain the contract only ever moves
-`i128` integers in the token's smallest unit, whatever that token's
-`transfer` function accepts.
+This is an illustrative example, not a specific on-chain agreement: the
+80.00 / 20.00 / 50-50 figures below are example inputs, not amounts pulled
+from a real funded or disputed agreement on the deployed contract. What is
+real is the arithmetic itself. Every transfer shown is exactly what the
+contract's code computes and moves; the transfer calls come directly from
+`agreement.rs` and `dispute.rs`, not from an assumption about what they
+do. Feed these same example inputs through `fund_agreement`,
+`release_funds`, and `resolve_dispute` on any deployment of this contract
+and you'll get exactly these numbers back. Amounts are shown as decimal
+USDC for readability; on-chain the contract only ever moves `i128`
+integers in the token's smallest unit, whatever that token's `transfer`
+function accepts.
 
 **Setup.** A renter books an item: `rental_amount` = 80.00 USDC,
 `deposit_amount` = 20.00 USDC.
