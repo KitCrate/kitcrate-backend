@@ -8,6 +8,13 @@ use rental_escrow::{RentalEscrow, RentalEscrowClient};
 pub const NOW: u64 = 1_700_000_000;
 
 /// Shared environment for RentalEscrow integration tests.
+///
+/// Each integration test file compiles this shared module as its own copy,
+/// so Rust's dead-code analysis runs per test binary: a field or function
+/// only exercised from some test files (not all) looks locally unused from
+/// the others. `#[allow(dead_code)]` below reflects that this module is a
+/// shared fixture, not that these members are actually unused overall.
+#[allow(dead_code)]
 pub struct TestEnv {
     pub env: Env,
     pub contract_id: Address,
@@ -20,7 +27,7 @@ pub struct TestEnv {
 
 impl TestEnv {
     /// Fresh client bound to the deployed contract.
-    pub fn client(&self) -> RentalEscrowClient {
+    pub fn client(&self) -> RentalEscrowClient<'_> {
         RentalEscrowClient::new(&self.env, &self.contract_id)
     }
 }
@@ -53,6 +60,7 @@ pub fn setup() -> TestEnv {
 /// Like `setup` but without mocked auth, for authorization-failure tests.
 /// The contract is deployed but not initialized; initialization itself
 /// requires admin auth and is exercised through `try_` calls.
+#[allow(dead_code)]
 pub fn setup_no_auth() -> TestEnv {
     let env = Env::default();
     env.ledger().set_timestamp(NOW);

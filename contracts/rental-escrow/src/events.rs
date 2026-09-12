@@ -55,6 +55,11 @@ pub fn funds_released(env: &Env, id: u64) {
     env.events().publish(topics, id);
 }
 
+pub fn funded_agreement_expired(env: &Env, id: u64, amount: i128) {
+    let topics = (Symbol::new(env, "funded_agreement_expired"), id);
+    env.events().publish(topics, (id, amount));
+}
+
 pub fn agreement_cancelled(env: &Env, id: u64) {
     let topics = (Symbol::new(env, "agreement_cancelled"), id);
     env.events().publish(topics, id);

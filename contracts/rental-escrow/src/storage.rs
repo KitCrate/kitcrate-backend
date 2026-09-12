@@ -13,6 +13,22 @@ use crate::types::{DataKey, RentalAgreement};
 /// threshold.
 const AGREEMENT_TTL: u32 = 6_311_520; // 365.25 days of ledgers
 
+/// How long a `Funded` agreement waits for `start_rental` before
+/// `reclaim_funded_agreement` becomes callable, in seconds.
+///
+/// Anchored to `funded_at`, not `start_time`: a renter can fund an
+/// agreement close to (or after) the negotiated `start_time`, and gating
+/// on `start_time` alone would let recovery become available immediately
+/// on funding, contradicting the requirement that ordinary funding never
+/// grants an instant refund. Seven days is long enough to absorb ordinary
+/// handover friction (weekends, travel, a slow reply) without requiring
+/// the renter to renegotiate, and short enough to bound how long funds
+/// can sit idle when the owner simply never responds. It is a fixed,
+/// compiled-in constant for v1, deliberately not admin-adjustable, so
+/// tightening or loosening it is itself a reviewable code change rather
+/// than a runtime privilege — see docs/phase2-step1-funded-liveness-fix.md.
+pub const FUNDED_RECOVERY_TIMEOUT_SECS: u64 = 604_800; // 7 days
+
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Admin)
 }

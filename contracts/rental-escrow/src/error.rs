@@ -34,4 +34,7 @@ pub enum RentalError {
     Overflow = 11,
     /// The owner and renter are the same address; a party cannot rent to itself.
     SameOwnerAndRenter = 12,
+    /// The `Funded` recovery timeout has not yet elapsed; the agreement is
+    /// still waiting on `start_rental`.
+    RecoveryWindowActive = 13,
 }

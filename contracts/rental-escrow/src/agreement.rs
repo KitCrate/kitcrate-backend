@@ -37,6 +37,11 @@ impl RentalEscrow {
     /// action: the renter initiating a booking against an owner's listing
     /// for a specific item over a specific period. No funds move here;
     /// the renter locks payment separately via `fund_agreement`.
+    // Pre-existing clippy debt (unrelated to this change): each parameter
+    // is an independently meaningful economic term of the agreement, not
+    // a naturally groupable struct, and this is the contract's public ABI
+    // so its argument order is not something to casually restructure.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_agreement(
         env: &Env,
         owner: Address,
@@ -72,6 +77,7 @@ impl RentalEscrow {
             claim_window_secs,
             status: AgreementStatus::Created,
             created_at: env.ledger().timestamp(),
+            funded_at: 0,
         };
         storage::write_agreement(env, &agreement);
         events::agreement_created(env, &agreement);
@@ -103,8 +109,9 @@ impl RentalEscrow {
             .checked_add(agreement.deposit_amount)
             .ok_or(RentalError::Overflow)?;
         let token = TokenClient::new(env, &storage::read_token(env)?);
-        token.transfer(&renter, &env.current_contract_address(), &total);
+        token.transfer(&renter, env.current_contract_address(), &total);
         agreement.status = AgreementStatus::Funded;
+        agreement.funded_at = env.ledger().timestamp();
         storage::write_agreement(env, &agreement);
         events::agreement_funded(env, id, total);
         Ok(())
@@ -127,6 +134,43 @@ impl RentalEscrow {
         agreement.status = AgreementStatus::Active;
         storage::write_agreement(env, &agreement);
         events::rental_started(env, id);
+        Ok(())
+    }
+
+    /// Recovers a `Funded` agreement whose owner never called
+    /// `start_rental`. Auth: none. Permissionless and time-gated, deliberately
+    /// mirroring `release_funds`: anyone may call it once
+    /// `FUNDED_RECOVERY_TIMEOUT_SECS` has strictly elapsed since
+    /// `fund_agreement`, so recovery never depends on any one party
+    /// remembering to act, and no caller can redirect funds because the
+    /// destination is always the agreement's own stored `renter`.
+    /// Refunds the full escrowed amount (`rental_amount +
+    /// deposit_amount`) to the renter and marks the agreement `Expired`.
+    /// The owner earns no rental fee here: no handover was ever confirmed,
+    /// so no rental period ever began. Real-world action: closing out a
+    /// booking the owner silently abandoned after being paid.
+    pub fn reclaim_funded_agreement(env: &Env, id: u64) -> Result<(), RentalError> {
+        let mut agreement = storage::read_agreement(env, id)?;
+        if agreement.status != AgreementStatus::Funded {
+            return Err(RentalError::InvalidStatus);
+        }
+        let recovery_deadline = agreement
+            .funded_at
+            .checked_add(storage::FUNDED_RECOVERY_TIMEOUT_SECS)
+            .ok_or(RentalError::Overflow)?;
+        if env.ledger().timestamp() <= recovery_deadline {
+            return Err(RentalError::RecoveryWindowActive);
+        }
+        let total = agreement
+            .rental_amount
+            .checked_add(agreement.deposit_amount)
+            .ok_or(RentalError::Overflow)?;
+        let token = TokenClient::new(env, &storage::read_token(env)?);
+        let contract = env.current_contract_address();
+        token.transfer(&contract, &agreement.renter, &total);
+        agreement.status = AgreementStatus::Expired;
+        storage::write_agreement(env, &agreement);
+        events::funded_agreement_expired(env, id, total);
         Ok(())
     }
 
