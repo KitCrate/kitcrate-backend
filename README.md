@@ -3,9 +3,8 @@
 **Peer-to-peer equipment rental, secured by a non-custodial Soroban escrow.**
 
 ![Network: Testnet](https://img.shields.io/badge/network-testnet-3d5afe)
+[![CI](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-
-No CI is configured for this repository yet (no `.github/workflows/`), so there is no build-status badge.
 
 ## What this is
 
