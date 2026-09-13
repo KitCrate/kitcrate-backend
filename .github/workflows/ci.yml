@@ -8,7 +8,7 @@ on:
 
 jobs:
   contract:
-    name: Contract build and test
+    name: Contract fmt, clippy, test, and wasm build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,6 +18,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run contract tests
         run: cargo test
@@ -31,8 +38,26 @@ jobs:
         run: stellar contract build --package rental-escrow
 
   indexer:
-    name: Indexer typecheck
+    name: Indexer typecheck and tests
     runs-on: ubuntu-latest
+    # Backs the indexer's route-level and listener tests, which need a
+    # real Postgres, not a mock (see indexer/test/*.test.ts). Port and
+    # credentials match indexer/.env.test and docker-compose.test.yml
+    # exactly, so that committed file works unmodified here too.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kitcrate
+          POSTGRES_PASSWORD: kitcrate
+          POSTGRES_DB: kitcrate_test
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -49,3 +74,7 @@ jobs:
       - name: Typecheck
         working-directory: indexer
         run: npm run typecheck
+
+      - name: Run indexer tests
+        working-directory: indexer
+        run: npm test
