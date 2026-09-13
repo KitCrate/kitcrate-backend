@@ -1,40 +1,38 @@
-# KitCrate
-
-**Peer-to-peer equipment rental, secured by a non-custodial Soroban escrow.**
-
-![Network: Testnet](https://img.shields.io/badge/network-testnet-3d5afe)
-[![CI](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
-
-## What this is
-
-KitCrate is a peer-to-peer marketplace for renting physical equipment: tools, cameras, construction gear, and event equipment. Renters and owners agree on a rental period and a security deposit. This repository holds the two pieces that make the deposit trustworthy without a platform holding the money: the `RentalEscrow` Soroban smart contract, which locks the rental fee and deposit on-chain and releases them by fixed rules instead of a company's discretion, and the indexer, a Node.js service that reads the contract's events, keeps a queryable copy of agreement and listing state in Postgres, and serves it over a REST API.
-
-<p>
-  <img src="docs/assets/screenshots/browse.jpg" alt="KitCrate browse page listing three items available to rent, each showing the daily rate, location, and description" width="49%">
-  <img src="docs/assets/screenshots/listing-detail.jpg" alt="KitCrate listing detail page for a camera rental, showing the daily rate, security deposit, location, and owner address, next to a booking panel" width="49%">
+<p align="center">
+  <img src="./assets/kitcrate-backend.svg" alt="KitCrate backend banner" width="100%">
 </p>
 
-<sub>Screenshots from a local development run against the app's own code, seeded with throwaway test data — not the live deployment, which currently has no real listings (see Known limitations).</sub>
+# KitCrate Backend
 
-## Links
+**On-chain rental escrow contract and indexer/API for the KitCrate marketplace.**
 
-- **Docs:** [kitcrate.github.io/kitcrate-backend](https://kitcrate.github.io/kitcrate-backend/)
-- **Frontend repo:** [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend)
-- **Live indexer API:** [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com)
-- **Deployed testnet contract:** `CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5` ([view on stellar.expert](https://stellar.expert/explorer/testnet/contract/CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5))
+[![CI](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/KitCrate/kitcrate-backend/actions/workflows/ci.yml)
+![Network: Testnet](https://img.shields.io/badge/network-testnet-3d5afe)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Rust](https://img.shields.io/badge/rust-1.91%2B-orange?logo=rust&logoColor=white)
+![Soroban](https://img.shields.io/badge/Soroban-Stellar-7D00FF)
 
-## Maintainer
+KitCrate is a peer-to-peer marketplace for renting physical equipment — tools, cameras, construction gear, event equipment. Renters and owners agree on a rental period and a security deposit without a platform custodying the money: a Soroban smart contract locks the rental fee and deposit and releases them by fixed, on-chain rules instead of a company's discretion. This repository holds that contract, `RentalEscrow`, and the indexer that turns its events into a queryable REST API for the [kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend) app.
 
-GitHub: [@Hollujay](https://github.com/Hollujay)
-Telegram: [@Hollujay21](https://t.me/Hollujay21)
+Currently deployed to **Stellar Testnet** only — see [Testnet status](#testnet-status) below for exactly what's running.
+
+## Project Links
+
+| | |
+| --- | --- |
+| **Live indexer API** | [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com) |
+| **Documentation** | [kitcrate.github.io/kitcrate-backend](https://kitcrate.github.io/kitcrate-backend/) |
+| **Frontend repo** | [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend) |
+| **Testnet contract** | [`CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`](https://stellar.expert/explorer/testnet/contract/CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5) |
+
+## What this repo does
+
+- **`contracts/rental-escrow`** — a `no_std` Rust/Soroban contract that holds the rental fee and deposit for the life of an agreement and releases them by rule, not by a party's say-so. It never moves funds except through the escrow token's own `transfer`.
+- **`indexer/`** — a Node.js/TypeScript service that polls Soroban RPC for the contract's events, persists them idempotently to Postgres, derives current agreement state from them, and serves it over a REST API. It also owns listing metadata (title, photos, rate, deposit), which has no on-chain equivalent; listing writes require a SEP-53 signed-message challenge proving control of the claimed owner address before they're accepted.
+
+The frontend never talks to the chain or the database directly — contract writes go through a connected wallet, and all reads go through this indexer's API.
 
 ## Architecture
-
-Two pieces, connected only by on-chain events:
-
-- **`contracts/rental-escrow`**: a `no_std` Rust crate built with `soroban-sdk 27.0.5`. Every state transition (create, fund, start, dispute, resolve, release, cancel, plus two permissionless timeout-based recovery paths — see below) emits an event. The contract never moves funds except through the escrow token's own `transfer` function.
-- **`indexer/`**: a TypeScript service that polls the Soroban RPC for those events, persists them idempotently to Postgres, derives a current-state `agreements` table from them, and exposes it over a REST API. Listing metadata (title, photos, rate, deposit) lives here too, in a `listings` table with no on-chain equivalent; creating, editing, or deleting a listing requires a SEP-53 signed-message challenge proving control of the claimed owner address (see `indexer/src/auth/`) before the write is accepted. The frontend reads through this API rather than the chain directly.
 
 ```mermaid
 flowchart LR
@@ -63,14 +61,36 @@ flowchart LR
     UI -- "writes: listings\n(SEP-53 signed)" --> IDX
 ```
 
-Funds only ever move through the contract, directly between a renter/owner
-wallet and the contract's own balance — the indexer and its Postgres
-database are a read-side cache and a listings-metadata store, never
-custodians of anything.
+Funds only ever move through the contract, directly between a renter/owner wallet and the contract's own balance — the indexer and its Postgres database are a read-side cache and a listings-metadata store, never custodians of anything.
 
-**Liveness:** a funded agreement whose owner never confirms handover, or a disputed agreement whose arbiter never rules, does not lock funds forever. Either case has a permissionless, time-gated recovery path (`reclaim_funded_agreement` after 7 days; `resolve_expired_dispute` after 14 days) that settles in the renter's favor rather than rewarding inaction — see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) for the full state machine.
+### Rental lifecycle
 
-For the full agreement state machine, every function's auth and effect, and a worked numeric example, see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) on the docs site. For every function signature and error code, see [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html).
+```mermaid
+stateDiagram-v2
+    [*] --> Created: create_agreement
+    Created --> Funded: fund_agreement
+    Created --> Cancelled: cancel_agreement
+    Funded --> Active: start_rental
+    Funded --> Expired: reclaim_funded_agreement\n(after 7d timeout)
+    Active --> Completed: release_funds
+    Active --> Disputed: raise_claim
+    Disputed --> Resolved: resolve_dispute\n(arbiter rules)
+    Disputed --> Resolved: resolve_expired_dispute\n(after 14d timeout)
+    Completed --> [*]
+    Cancelled --> [*]
+    Expired --> [*]
+    Resolved --> [*]
+```
+
+A funded agreement whose owner never confirms handover, or a disputed agreement whose arbiter never rules, does not lock funds forever: `reclaim_funded_agreement` (7-day timeout) and `resolve_expired_dispute` (14-day timeout) are permissionless recovery paths that settle in the renter's favor rather than rewarding inaction. For every function's exact auth and effect, and a worked numeric example, see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html).
+
+## Contract
+
+`contracts/rental-escrow`, built with `soroban-sdk 27.0.5`. Every state transition above emits an event, which is the indexer's only source of truth. For every function signature and error code, see [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html).
+
+## Indexer / API
+
+`indexer/`, a TypeScript/Express service backed by Postgres. Read endpoints (`GET /listings`, `GET /agreements`, …) are public. Listing-mutation endpoints (`POST`/`PATCH`/`DELETE /listings`) require a SEP-53 signed-message challenge proving control of the claimed owner address, obtained from `POST /auth/challenge` and consumed once. For the full SDK-facing API and a worked example, see the [Developer Guide](https://kitcrate.github.io/kitcrate-backend/developer-guide.html).
 
 ## Quick start
 
@@ -82,13 +102,7 @@ Prerequisites: Rust (rustc >= 1.91), the [Stellar CLI](https://developers.stella
 stellar contract build --package rental-escrow
 ```
 
-Tested against this repo: produces `target/wasm32v1-none/release/rental_escrow.wasm` and reports 10 exported functions. `make wasm` runs the equivalent `cargo build` directly, if you'd rather not use the Stellar CLI. That count describes building this repo's current source, not necessarily the address linked above under Links — see the note at the top of [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html) for whether the two currently match.
-
-**Run the contract tests:**
-
-```sh
-cargo test
-```
+Tested against this repo: produces `target/wasm32v1-none/release/rental_escrow.wasm` and reports 10 exported functions. `make wasm` runs the equivalent `cargo build` directly, if you'd rather not use the Stellar CLI. That count describes building this repo's current source — see [Testnet status](#testnet-status) for whether it matches the address linked above.
 
 **Run the indexer locally:**
 
@@ -102,6 +116,14 @@ npm run dev
 
 Real variables from `indexer/.env.example`: `RPC_URL`, `CONTRACT_ID`, `DATABASE_URL`, `PORT`, `POLL_INTERVAL_MS`, `START_LEDGER`.
 
+## Development and testing
+
+**Contract tests:**
+
+```sh
+cargo test
+```
+
 **Indexer tests:** route-level integration tests against a real Postgres (no mocked database). Start the disposable test database, then run the suite:
 
 ```sh
@@ -110,19 +132,41 @@ cd indexer
 npm test
 ```
 
-`indexer/.env.test` (committed, non-secret) points `npm test` at that disposable database by default; it's never the same database `make db-up` starts for local dev.
+`indexer/.env.test` (committed, non-secret) points `npm test` at that disposable database by default — never the same database `make db-up` starts for local dev.
+
+## Testnet status
+
+**Repo vs. deployed — these are currently not the same build.** This repo's source (`HEAD`) exports 10 contract functions and includes two liveness-recovery paths (`reclaim_funded_agreement`, `resolve_expired_dispute`). The Testnet address linked above under [Project Links](#project-links) is currently running an earlier 8-function build without those recovery paths, and the live indexer is running an earlier build without the SEP-53 listing-auth layer described above. Promoting both to the hardened builds in this repo is a deployment step (a Testnet redeploy plus a Render config update), not an engineering one — the work is tracked in [`docs/phase3-step1-contract-promotion-audit.md`](docs/phase3-step1-contract-promotion-audit.md) and [`docs/phase3-step2-production-indexer-rollout.md`](docs/phase3-step2-production-indexer-rollout.md).
+
+The deployed contract has processed 7 agreements to date (visible only as an internal counter — event-level detail beyond the RPC's retention window is no longer retrievable). The deployed escrow token is Testnet native XLM.
+
+## Documentation
+
+Full docs, including the state machine, contract reference, and guides for both roles, live at [kitcrate.github.io/kitcrate-backend](https://kitcrate.github.io/kitcrate-backend/):
+
+- [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) — full state machine, every function's auth/effect, worked example
+- [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html) — every function signature and error code
+- [Developer Guide](https://kitcrate.github.io/kitcrate-backend/developer-guide.html) — SDK API and integration examples
+- [For Owners](https://kitcrate.github.io/kitcrate-backend/for-owners.html) / [For Renters](https://kitcrate.github.io/kitcrate-backend/for-renters.html) — role-specific walkthroughs
+
+## Known limitations
+
+- **The Testnet address is not yet running this repo's hardened build.** See [Testnet status](#testnet-status) above.
+- **Zero recoverable history from the indexer's own event scan.** The 7 existing agreements on the deployed contract predate this indexer's retained event window; a fresh indexer deploy starts with an empty `agreements` table regardless.
+- **Render free-tier hosting.** The live indexer sleeps after a period of inactivity; the first request afterward can take up to about 50 seconds. The free Postgres database expires 30 days after creation and has to be recreated.
+- **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message on every write flow; the contract itself has no awareness of it.
+- **Listing-mutation challenges have no rate limit.** `POST /auth/challenge` is public and unauthenticated by design (possession of a challenge proves nothing without a valid signature over it), but the indexer doesn't currently throttle how many a single client can request. Challenges are single-use and never authorize a contract call directly, but an unbounded flood of them is an accepted, not-yet-addressed operational gap.
+- **The `Funded`/`Disputed` recovery timeouts (7 and 14 days) are fixed, compiled-in constants**, not configurable per agreement.
 
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md): this project isn't currently accepting outside contributions.
 
-## Known limitations
+## Maintainer
 
-- **Zero live usage so far.** The deployed testnet contract has no on-chain agreements, and the live indexer's database is empty. The screenshots above are from a local development run with seeded test data, not the live deployment.
-- **Render free-tier hosting.** The live indexer sleeps after a period of inactivity; the first request afterward can take up to about 50 seconds. The free Postgres database expires 30 days after creation and has to be recreated.
-- **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message on every write flow; the contract itself has no awareness of it; it's a property of how Stellar account auth works against any `require_auth()` call.
-- **Listing-mutation challenges have no rate limit.** `POST /auth/challenge` is public and unauthenticated by design (possession of a challenge proves nothing without a valid signature over it), but the indexer doesn't currently throttle how many a single client can request. This bounds nothing about fund safety — challenges are single-use and never authorize a contract call — but an unbounded flood of them is an accepted, not-yet-addressed operational gap.
-- **The `Funded`/`Disputed` recovery timeouts (7 and 14 days) are fixed, compiled-in constants**, not configurable per agreement. A future iteration could make them negotiable at `create_agreement` time if real usage shows the defaults are a poor fit for some listings; for now, changing them is a code change, deliberately not a runtime privilege.
+**Hollujay**
+- GitHub: [@Hollujay](https://github.com/Hollujay)
+- Telegram: [@Hollujay21](https://t.me/Hollujay21)
 
 ## License
 
