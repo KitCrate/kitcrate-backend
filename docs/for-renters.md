@@ -8,8 +8,10 @@ title: For Renters
 This page is for someone booking equipment on KitCrate. It assumes no
 blockchain experience. You'll need the [Freighter](https://www.freighter.app/)
 browser extension installed and a wallet funded with the token the listing
-is priced in (USDC on the live deployment); the app prompts you to connect
-Freighter wherever you need to sign something.
+is priced in (native XLM on the currently documented Testnet deployment;
+see [Protocol Mechanics](protocol-mechanics.html) for how that was
+confirmed). The app prompts you to connect Freighter wherever you need
+to sign something.
 
 ## Browsing and booking
 

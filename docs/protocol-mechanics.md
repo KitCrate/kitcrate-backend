@@ -182,7 +182,22 @@ reasoning.
 - **On-chain effect:** sets status `Cancelled`. No funds move, because none
   had been escrowed yet.
 
-## Worked example: an 80.00 USDC rental, 20.00 USDC deposit
+## Native XLM economics, as actually implemented
+
+The contract's `initialize` function takes a `token: Address` parameter
+and stores it once; every transfer in `agreement.rs` and `dispute.rs`
+goes through that token's own SEP-41 `transfer` function. The contract
+itself is token-agnostic; it will work with any SEP-41-compliant token.
+
+That said, the currently documented Testnet contract
+(`CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`) was
+initialized with **native XLM**, confirmed by reading the token address
+from the contract's own instance storage and checking it against the
+deterministic native-asset Stellar Asset Contract address for Testnet.
+It is not a stablecoin. The worked example below uses XLM for this
+reason, not because the contract requires it.
+
+## Worked example: an 80.00 XLM rental, 20.00 XLM deposit
 
 This is an illustrative example, not a specific on-chain agreement: the
 80.00 / 20.00 / 50-50 figures below are example inputs, not amounts pulled
@@ -193,20 +208,21 @@ contract's code computes and moves; the transfer calls come directly from
 do. Feed these same example inputs through `fund_agreement`,
 `release_funds`, and `resolve_dispute` on any deployment of this contract
 and you'll get exactly these numbers back. Amounts are shown as decimal
-USDC for readability; on-chain the contract only ever moves `i128`
-integers in the token's smallest unit, whatever that token's `transfer`
-function accepts.
+XLM for readability, matching the token actually used by the deployment
+described above; on-chain the contract only ever moves `i128` integers
+in the token's smallest unit, whatever that token's `transfer` function
+accepts.
 
-**Setup.** A renter books an item: `rental_amount` = 80.00 USDC,
-`deposit_amount` = 20.00 USDC.
+**Setup.** A renter books an item: `rental_amount` = 80.00 XLM,
+`deposit_amount` = 20.00 XLM.
 
 **1. `fund_agreement`.** The renter is charged the sum of both:
 
 | From | To | Amount |
 | --- | --- | --- |
-| Renter | Contract | 80.00 + 20.00 = **100.00 USDC** |
+| Renter | Contract | 80.00 + 20.00 = **100.00 XLM** |
 
-The contract now holds 100.00 USDC. Status: `Funded`.
+The contract now holds 100.00 XLM. Status: `Funded`.
 
 **2. `start_rental`.** No funds move. Status: `Active`.
 
@@ -216,10 +232,10 @@ The contract now holds 100.00 USDC. Status: `Funded`.
 
 | From | To | Amount |
 | --- | --- | --- |
-| Contract | Renter | 20.00 USDC (the full deposit) |
-| Contract | Owner | 80.00 USDC (the full rental fee) |
+| Contract | Renter | 20.00 XLM (the full deposit) |
+| Contract | Owner | 80.00 XLM (the full rental fee) |
 
-Contract balance after: 100.00 - 20.00 - 80.00 = **0.00 USDC**. Status:
+Contract balance after: 100.00 - 20.00 - 80.00 = **0.00 XLM**. Status:
 `Completed`.
 
 ### Path B: a claim is raised, resolved 50/50 on the deposit
@@ -228,20 +244,20 @@ Contract balance after: 100.00 - 20.00 - 80.00 = **0.00 USDC**. Status:
 the claim window is still open. No funds move. Status: `Disputed`.
 
 **4. `resolve_dispute`,** called by the arbiter with `amount_to_owner` set
-to half the deposit: 10.00 USDC (`amount_to_renter` is computed by the
+to half the deposit: 10.00 XLM (`amount_to_renter` is computed by the
 contract as `deposit_amount - amount_to_owner` = 20.00 - 10.00 = 10.00
-USDC):
+XLM):
 
 | From | To | Amount | Why |
 | --- | --- | --- | --- |
-| Contract | Owner | 10.00 USDC | half the deposit, per the arbiter's split |
-| Contract | Renter | 10.00 USDC | the other half of the deposit |
-| Contract | Owner | 80.00 USDC | the full rental fee, paid regardless of the dispute |
+| Contract | Owner | 10.00 XLM | half the deposit, per the arbiter's split |
+| Contract | Renter | 10.00 XLM | the other half of the deposit |
+| Contract | Owner | 80.00 XLM | the full rental fee, paid regardless of the dispute |
 
-Contract balance after: 100.00 - 10.00 - 10.00 - 80.00 = **0.00 USDC**.
-Status: `Resolved`. The owner ends up with 90.00 USDC total (10.00 from the
-deposit split plus the 80.00 rental fee); the renter ends up with 10.00 USDC
-back out of the 100.00 USDC originally paid in.
+Contract balance after: 100.00 - 10.00 - 10.00 - 80.00 = **0.00 XLM**.
+Status: `Resolved`. The owner ends up with 90.00 XLM total (10.00 from the
+deposit split plus the 80.00 rental fee); the renter ends up with 10.00 XLM
+back out of the 100.00 XLM originally paid in.
 
 ### Path C: the owner never starts the rental
 
@@ -250,9 +266,9 @@ after `fund_agreement`, since `start_rental` never happened:
 
 | From | To | Amount |
 | --- | --- | --- |
-| Contract | Renter | 80.00 + 20.00 = **100.00 USDC** (the full amount funded) |
+| Contract | Renter | 80.00 + 20.00 = **100.00 XLM** (the full amount funded) |
 
-Contract balance after: **0.00 USDC**. Status: `Expired`. The owner
+Contract balance after: **0.00 XLM**. Status: `Expired`. The owner
 receives nothing — no rental period ever began.
 
 ### Path D: a claim is raised, but the arbiter never resolves it
@@ -264,10 +280,10 @@ after the claim was raised, since `resolve_dispute` never happened:
 
 | From | To | Amount | Why |
 | --- | --- | --- | --- |
-| Contract | Renter | 20.00 USDC (the full deposit) | an unadjudicated claim defaults to no award |
-| Contract | Owner | 80.00 USDC (the full rental fee) | earned regardless of the dispute's outcome, same as every other path |
+| Contract | Renter | 20.00 XLM (the full deposit) | an unadjudicated claim defaults to no award |
+| Contract | Owner | 80.00 XLM (the full rental fee) | earned regardless of the dispute's outcome, same as every other path |
 
-Contract balance after: **0.00 USDC**. Status: `Resolved` (with a
+Contract balance after: **0.00 XLM**. Status: `Resolved` (with a
 `dispute_auto_resolved` event rather than `dispute_resolved`, so the
 history still shows this wasn't an arbiter decision).
 

@@ -90,7 +90,7 @@ A funded agreement whose owner never confirms handover, or a disputed agreement 
 
 ## Indexer / API
 
-`indexer/`, a TypeScript/Express service backed by Postgres. Read endpoints (`GET /listings`, `GET /agreements`, …) are public. Listing-mutation endpoints (`POST`/`PATCH`/`DELETE /listings`) require a SEP-53 signed-message challenge proving control of the claimed owner address, obtained from `POST /auth/challenge` and consumed once. For the full SDK-facing API and a worked example, see the [Developer Guide](https://kitcrate.github.io/kitcrate-backend/developer-guide.html).
+`indexer/`, a TypeScript/Express service backed by Postgres. Read endpoints (`GET /listings`, `GET /agreements`, …) are public. Listing-mutation endpoints (`POST`/`PUT`/`DELETE /listings`) require a SEP-53 signed-message challenge proving control of the claimed owner address, obtained from `POST /auth/challenge` and consumed once. For the full endpoint-by-endpoint reference see [API Reference](https://kitcrate.github.io/kitcrate-backend/api-reference.html); for SDK-facing usage and a worked example, see the [Developer Guide](https://kitcrate.github.io/kitcrate-backend/developer-guide.html).
 
 ## Quick start
 
@@ -146,6 +146,7 @@ Full docs, including the state machine, contract reference, and guides for both 
 
 - [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) — full state machine, every function's auth/effect, worked example
 - [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html) — every function signature and error code
+- [API Reference](https://kitcrate.github.io/kitcrate-backend/api-reference.html) — every indexer REST endpoint, request/response shapes, and auth
 - [Developer Guide](https://kitcrate.github.io/kitcrate-backend/developer-guide.html) — SDK API and integration examples
 - [For Owners](https://kitcrate.github.io/kitcrate-backend/for-owners.html) / [For Renters](https://kitcrate.github.io/kitcrate-backend/for-renters.html) — role-specific walkthroughs
 

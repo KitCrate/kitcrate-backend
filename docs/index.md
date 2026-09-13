@@ -61,6 +61,77 @@ to an arbiter's ruling if a claim is raised.
 The full state machine, the exact function that drives each step, and a
 worked numeric example are in [Protocol Mechanics](protocol-mechanics.html).
 
+## High-level architecture
+
+Two repositories, connected only by on-chain events and one REST API:
+
+```
+  kitcrate-frontend                    Stellar Testnet
++--------------------+    sign      +--------------------+
+|  Next.js app       | <----------> |  Freighter wallet   |
++--------------------+              +--------------------+
+        |  submit                            |
+        v                                    v
+  +----------------------------------------------------+
+  |          RentalEscrow contract (Testnet)            |
+  +----------------------------------------------------+
+        |  events
+        v
+  kitcrate-backend
++--------------------+   polled   +--------------------+
+|   Soroban RPC       | <-------- |  Indexer + REST API  |
++--------------------+            +--------------------+
+                                          |  idempotent writes
+                                          v
+                                   +-------------+
+                                   |  Postgres   |
+                                   +-------------+
+
+  kitcrate-frontend reads and writes listings/agreements only through
+  the indexer's REST API above, never directly against Postgres.
+```
+
+The frontend never talks to the chain or the database directly:
+contract writes go through a connected wallet, and every read goes
+through the indexer's REST API. Funds only ever move through the
+contract itself, directly between a renter or owner wallet and the
+contract's own balance; the indexer and its Postgres database are a
+read-side cache and a listings-metadata store, never custodians of
+anything.
+
+## Repository relationships
+
+- **[kitcrate-backend](https://github.com/KitCrate/kitcrate-backend)**
+  owns the `RentalEscrow` Soroban contract and the indexer/REST API. This
+  documentation site is built from and published by this repository.
+- **[kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend)**
+  owns the Next.js web app and the `@kitcrate/sdk` package that talks to
+  both the contract (via a connected wallet) and the backend's REST API
+  on the app's behalf.
+
+Neither repository vendors or duplicates the other's source. They agree
+on a contract address, a REST API shape, and a token, configured
+independently in each repository's own environment variables (see the
+[Developer Guide](developer-guide.html)).
+
+## Testnet and production status
+
+This project runs on **Stellar Testnet only**. There is no mainnet
+deployment.
+
+The contract source and indexer source in these two repositories'
+current `main` branches are hardened: every function documented in
+[Protocol Mechanics](protocol-mechanics.html) and
+[Contract Reference](contract-reference.html) exists and is tested in
+source today. Promoting that hardened source to the publicly documented
+Testnet contract address and to the live indexer API is a separate,
+currently access-blocked operational step, not an engineering gap;
+until that promotion happens, what is actually running at those
+addresses may predate this source. See the backend README's "Testnet
+status" section for the current, specific state of that gap. This site
+describes the source, and says so explicitly wherever the two could
+otherwise be confused.
+
 ## Who this is for
 
 - New to the app and just want to use it? Start with
@@ -68,12 +139,20 @@ worked numeric example are in [Protocol Mechanics](protocol-mechanics.html).
 - Reviewing the contract or building against it? Start with
   [Protocol Mechanics](protocol-mechanics.html) and
   [Contract Reference](contract-reference.html).
+- Integrating with the REST API directly? See the
+  [API Reference](api-reference.html).
 - Setting up the code locally? Go to
   [Developer Guide](developer-guide.html).
+- Contributing, or reporting a security issue? See
+  [Contributing](contributing.html).
 
 ## Links
 
 - Live app: [kitcrate-frontend-web.vercel.app](https://kitcrate-frontend-web.vercel.app)
+- Live indexer API: [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com)
 - Contract and indexer source: [github.com/KitCrate/kitcrate-backend](https://github.com/KitCrate/kitcrate-backend)
 - Web app and SDK source: [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend)
 - Deployed testnet contract: `CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`
+  (see [Testnet and production status](#testnet-and-production-status)
+  above before assuming this address runs the source described on this
+  site)

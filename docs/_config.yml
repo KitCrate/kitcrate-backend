@@ -9,5 +9,6 @@ header_pages:
   - for-renters.md
   - protocol-mechanics.md
   - contract-reference.md
+  - api-reference.md
   - developer-guide.md
   - contributing.md

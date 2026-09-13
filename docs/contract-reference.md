@@ -23,9 +23,12 @@ address, or a new one, is a separate deployment decision this reference
 does not assume has happened; until it has, that address still exports 8
 functions, not the 10 below.
 
-**Escrow token:** an SEP-41 token, set once at `initialize`. The live
-deployment uses a USDC-style token; every transfer in the contract goes
-through that token's own `transfer` function.
+**Escrow token:** an SEP-41 token, set once at `initialize`. The
+contract is token-agnostic; it accepts any SEP-41-compliant token
+address. The currently documented Testnet deployment above was
+initialized with **native XLM**, confirmed by reading the token address
+from the contract's own instance storage. Every transfer in the
+contract goes through that token's own `transfer` function.
 
 Every function below takes an implicit `env: &Env` as its first Rust
 parameter. That's the Soroban host environment, supplied automatically by

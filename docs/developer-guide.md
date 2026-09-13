@@ -10,6 +10,17 @@ environment variable and command here is pulled from the actual
 `.env.example` files, `Makefile`, and `package.json` scripts in each repo,
 not invented.
 
+**Local, dev, Testnet, and production are four different things here.**
+Building and testing the contract locally, running the indexer and web
+app against a local Postgres, and deploying a fresh contract to Stellar
+Testnet yourself are all fully supported today with the commands on
+this page. None of that changes what is currently running at the
+publicly documented Testnet contract address or the live indexer API;
+that promotion is a separate, currently access-blocked operational step
+(see the backend README's "Testnet status" section). A local build, a
+Testnet deploy you make yourself, and the existing public deployment
+can all be running different source at the same time.
+
 ## kitcrate-backend
 
 Repository: [github.com/KitCrate/kitcrate-backend](https://github.com/KitCrate/kitcrate-backend)
@@ -82,7 +93,7 @@ Environment variables, from `apps/web/.env.example`, all prefixed
 | Variable | Description |
 | --- | --- |
 | `NEXT_PUBLIC_CONTRACT_ID` | Deployed RentalEscrow contract address. |
-| `NEXT_PUBLIC_TOKEN_CONTRACT_ID` | SEP-41 token contract address, for example a USDC SAC. |
+| `NEXT_PUBLIC_TOKEN_CONTRACT_ID` | SEP-41 escrow token contract address. On the currently documented Testnet deployment this is the native XLM Stellar Asset Contract address, not a stablecoin (see [Protocol Mechanics](protocol-mechanics.html)). |
 | `NEXT_PUBLIC_SOROBAN_RPC_URL` | Soroban RPC endpoint. |
 | `NEXT_PUBLIC_NETWORK_PASSPHRASE` | Stellar network passphrase. |
 | `NEXT_PUBLIC_INDEXER_API_URL` | Base URL for the kitcrate-backend indexer API. |
@@ -140,9 +151,19 @@ noted):
 | `buildStartRental` | `ownerAddress: string, agreementId: bigint` |
 | `buildRaiseClaim` | `ownerAddress: string, agreementId: bigint, claimAmount: bigint, evidenceRef: string` |
 | `buildReleaseFunds` | `callerAddress: string, agreementId: bigint` (permissionless; any connected wallet works as the source) |
+| `buildReclaimFundedAgreement` | `callerAddress: string, agreementId: bigint` (permissionless liveness recovery for an abandoned `Funded` agreement) |
+| `buildResolveExpiredDispute` | `callerAddress: string, agreementId: bigint` (permissionless liveness recovery for an abandoned `Disputed` agreement) |
 | `buildCancelAgreement` | `callerAddress: string, agreementId: bigint` |
 | `submit` | `signedTxXdr: string` &rarr; `Promise<rpc.Api.GetTransactionResponse>`. Submits a wallet-signed envelope and polls the RPC until it finalizes. |
 | `getAccountSignatureRequirement` | `address: string` &rarr; `Promise<AccountSignatureRequirement \| null>`. Predicts whether a single wallet signature can authorize an invocation from this account, so the UI can warn about a multisig threshold before prompting a signature that would fail. |
+
+`RentalEscrowClient` has no `buildResolveDispute` method. The contract's
+`resolve_dispute` (the arbiter's normal adjudication call, as opposed to
+its permissionless timeout fallback above) is not wired into the
+frontend at all; there is no arbiter-facing UI in `apps/web`, and
+`AgreementActions.tsx` does not import a resolve-dispute button. An
+arbiter currently acts through the Stellar CLI or a direct RPC call, not
+through this app.
 
 ### `IndexerClient`
 
@@ -156,11 +177,20 @@ uses.
 | `getAgreement` | `id: string` | `Promise<Agreement>` |
 | `listAgreements` | `filters: AgreementFilters` (`owner?`, `renter?`, `status?`) | `Promise<Agreement[]>` |
 | `getAgreementEvents` | `id: string` | `Promise<AgreementEvent[]>` |
-| `listListings` | `filters: ListingFilters` (`ownerAddress?`, `category?`) | `Promise<Listing[]>` |
+| `listListings` | `filters: ListingFilters` (`ownerAddress?` only; the backend filters listings by owner alone) | `Promise<Listing[]>` |
 | `getListing` | `id: string` | `Promise<Listing>` |
-| `createListing` | `input: CreateListingInput` | `Promise<Listing>` |
-| `updateListing` | `id: string, input: UpdateListingInput` | `Promise<Listing>` |
-| `deleteListing` | `id: string` | `Promise<void>` |
+| `requestListingChallenge` | `signer: Pick<ListingSigner, "address">, action: ListingAuthAction, listingId: string` | `Promise<ListingChallenge>` (calls `POST /auth/challenge`; see the [API Reference](api-reference.html)) |
+| `createListing` | `input: CreateListingInput, signer: ListingSigner` | `Promise<Listing>` |
+| `updateListing` | `id: string, input: UpdateListingInput, signer: ListingSigner` | `Promise<Listing>` |
+| `deleteListing` | `id: string, signer: ListingSigner` | `Promise<void>` |
+
+`createListing`, `updateListing`, and `deleteListing` each request a
+fresh challenge internally, have the passed `signer.sign` callback sign
+it, and attach the resulting `X-Kitcrate-Address`, `X-Kitcrate-Nonce`,
+and `X-Kitcrate-Signature` headers automatically; calling
+`requestListingChallenge` directly is only needed if a caller wants to
+prompt the wallet ahead of time, before the network request that
+consumes the challenge.
 
 ### Minimal example: building and signing a transaction
 
