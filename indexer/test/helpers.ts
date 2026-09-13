@@ -9,7 +9,9 @@ import type { ListingAuthAction } from '../src/auth/message.js';
 /// state from a previous run.
 export async function resetDb(): Promise<void> {
   await initDb();
-  await pool.query('TRUNCATE listings, auth_challenges RESTART IDENTITY CASCADE');
+  await pool.query(
+    'TRUNCATE listings, auth_challenges, agreements, agreement_events, orphaned_events, sync_state RESTART IDENTITY CASCADE',
+  );
 }
 
 export interface TestSigner {

@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import { agreementsRouter } from './api/agreements.js';
 import { authRouter } from './api/auth.js';
+import { diagnosticsRouter } from './api/diagnostics.js';
 import { listingsRouter } from './api/listings.js';
 
 /// Builds the Express app (routes + middleware) without binding a port or
@@ -30,6 +31,7 @@ export function createApp(): Express {
 
   app.use('/agreements', agreementsRouter);
   app.use('/auth', authRouter);
+  app.use('/diagnostics', diagnosticsRouter);
   app.use('/listings', listingsRouter);
 
   return app;

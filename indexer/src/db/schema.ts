@@ -93,4 +93,26 @@ CREATE TABLE IF NOT EXISTS auth_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at
   ON auth_challenges (expires_at);
+
+-- Records every non-creation event that arrived for an agreement id with
+-- no matching row in agreements (P1-3 in the Phase 1 audit: previously
+-- this case updated zero rows and was silently discarded). The raw event
+-- itself is never lost -- it is always in agreement_events first, since
+-- this table is only written from within applyStateTransition, which
+-- only runs after that insert succeeds -- this table exists purely to
+-- make the resulting gap in the derived agreements table discoverable
+-- (via GET /diagnostics/orphaned-events) instead of requiring someone to
+-- notice a missing row and go looking through logs.
+CREATE TABLE IF NOT EXISTS orphaned_events (
+  id BIGSERIAL PRIMARY KEY,
+  contract_id TEXT NOT NULL,
+  agreement_id BIGINT NOT NULL,
+  event_id TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  ledger_seq BIGINT NOT NULL,
+  detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orphaned_events_agreement
+  ON orphaned_events (contract_id, agreement_id);
 `;

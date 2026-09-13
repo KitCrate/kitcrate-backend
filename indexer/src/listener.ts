@@ -189,16 +189,37 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
       if (!status) {
         return;
       }
-      await client.query(
+      const result = await client.query(
         'UPDATE agreements SET status = $1, updated_ledger = $2 WHERE contract_id = $3 AND id = $4',
         [status, ledger, config.contractId, agreementId],
       );
+      // Zero rows updated means this agreement's own agreement_created
+      // event was never indexed (a real risk: START_LEDGER set after the
+      // real creation ledger, or the RPC's retention window aging that
+      // ledger out before this indexer's first run) — every event for
+      // that id from here on would otherwise vanish with no trace beyond
+      // the raw, hard-to-discover agreement_events row. Recorded
+      // durably (not just logged) so it's queryable via
+      // GET /diagnostics/orphaned-events instead of requiring someone to
+      // notice a missing row and go looking through logs.
+      if (result.rowCount === 0) {
+        console.error(
+          `[listener] orphaned event: ${topicName} for agreement ${agreementId} ` +
+            `(contract ${config.contractId}, ledger ${ledger}) has no matching ` +
+            'agreements row -- its agreement_created event was never indexed',
+        );
+        await client.query(
+          `INSERT INTO orphaned_events (contract_id, agreement_id, event_id, topic, ledger_seq)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [config.contractId, agreementId, parsed.eventId, topicName, ledger],
+        );
+      }
     }
   }
 }
 
 /// Outcome of persisting one event.
-type PersistOutcome = 'inserted' | 'duplicate' | 'changed';
+export type PersistOutcome = 'inserted' | 'duplicate' | 'changed';
 
 /// Persists one event and, when it is new, applies its state transition.
 /// Both writes happen in one transaction and the event insert is
@@ -211,7 +232,12 @@ type PersistOutcome = 'inserted' | 'duplicate' | 'changed';
 /// us, which is evidence of a reorg that the checkpoint-vs-tip check
 /// would miss (for example a same-height reorg), and `changed` is
 /// returned so the poll loop can rebuild.
-async function persistEvent(event: ParsedEvent): Promise<PersistOutcome> {
+///
+/// Exported (in addition to `parseEvent` and `startListener`) so tests
+/// can drive the exact same idempotent-persistence and orphan-detection
+/// code path the real poll loop uses, against a real database, without
+/// needing to mock the Soroban RPC server.
+export async function persistEvent(event: ParsedEvent): Promise<PersistOutcome> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
