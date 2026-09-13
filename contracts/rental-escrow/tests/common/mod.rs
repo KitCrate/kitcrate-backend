@@ -1,7 +1,7 @@
+use rental_escrow::{RentalEscrow, RentalEscrowClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
 use soroban_sdk::{Address, Env};
-use rental_escrow::{RentalEscrow, RentalEscrowClient};
 
 /// Fixed ledger timestamp used by every test so time-dependent behavior
 /// (claim windows, release deadlines) is deterministic.
@@ -43,7 +43,9 @@ pub fn setup() -> TestEnv {
     let owner = Address::generate(&env);
     let renter = Address::generate(&env);
     let contract_id = env.register(RentalEscrow, ());
-    let token = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     let client = RentalEscrowClient::new(&env, &contract_id);
     client.initialize(&admin, &arbiter, &token);
     TestEnv {
@@ -69,7 +71,9 @@ pub fn setup_no_auth() -> TestEnv {
     let owner = Address::generate(&env);
     let renter = Address::generate(&env);
     let contract_id = env.register(RentalEscrow, ());
-    let token = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     TestEnv {
         env,
         contract_id,

@@ -1,9 +1,9 @@
 mod common;
 
-use soroban_sdk::testutils::{Events, Ledger as _};
-use soroban_sdk::{IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
+use soroban_sdk::testutils::{Events, Ledger as _};
+use soroban_sdk::{IntoVal, String, Symbol};
 
 use common::{balance, mint, setup, TestEnv};
 
@@ -44,15 +44,13 @@ fn release_funds_settles_a_clean_rental() {
     assert_eq!(balance(&t.env, &t.token, &t.renter), 500);
     assert_eq!(balance(&t.env, &t.token, &t.owner), 1000);
     assert_eq!(balance(&t.env, &t.token, &t.contract_id), 0);
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(id))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(id))
+            .unwrap()
+    });
     assert_eq!(stored.status, AgreementStatus::Completed);
 }
 

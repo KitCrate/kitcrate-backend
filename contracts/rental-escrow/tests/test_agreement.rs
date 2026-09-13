@@ -1,9 +1,9 @@
 mod common;
 
-use soroban_sdk::testutils::{Address as _, Events, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{Address, IntoVal, String, Symbol};
 use rental_escrow::error::RentalError;
 use rental_escrow::types::{AgreementStatus, DataKey, RentalAgreement};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _, MockAuth, MockAuthInvoke};
+use soroban_sdk::{Address, IntoVal, String, Symbol};
 
 use common::{balance, mint, setup, setup_no_auth, TestEnv};
 
@@ -28,21 +28,15 @@ fn create_agreement(t: &TestEnv, item: &String) -> u64 {
 #[test]
 fn initialize_stores_admin_arbiter_and_token() {
     let t = setup();
-    let admin: Address = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env.storage().instance().get(&DataKey::Admin).unwrap()
-        });
-    let arbiter: Address = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env.storage().instance().get(&DataKey::Arbiter).unwrap()
-        });
-    let token: Address = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env.storage().instance().get(&DataKey::Token).unwrap()
-        });
+    let admin: Address = t.env.as_contract(&t.contract_id, || {
+        t.env.storage().instance().get(&DataKey::Admin).unwrap()
+    });
+    let arbiter: Address = t.env.as_contract(&t.contract_id, || {
+        t.env.storage().instance().get(&DataKey::Arbiter).unwrap()
+    });
+    let token: Address = t.env.as_contract(&t.contract_id, || {
+        t.env.storage().instance().get(&DataKey::Token).unwrap()
+    });
     assert_eq!(admin, t.admin);
     assert_eq!(arbiter, t.arbiter);
     assert_eq!(token, t.token);
@@ -73,15 +67,13 @@ fn create_agreement_stores_a_created_agreement() {
     let id = create_agreement(&t, &item);
     assert_eq!(id, 1);
 
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(1))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(1))
+            .unwrap()
+    });
     assert_eq!(stored.id, 1);
     assert_eq!(stored.owner, t.owner);
     assert_eq!(stored.renter, t.renter);
@@ -101,24 +93,10 @@ fn create_agreement_increments_ids() {
     let client = t.client();
     let item = item_ref(&t.env, "listing-1");
     let id1 = client.create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &500i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &1000i128, &500i128, &1, &2, &86_400u64,
     );
     let id2 = client.create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &2000i128,
-        &500i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &2000i128, &500i128, &1, &2, &86_400u64,
     );
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -130,14 +108,7 @@ fn create_agreement_rejects_zero_rental_amount() {
     let client = t.client();
     let item = item_ref(&t.env, "listing-1");
     let res = client.try_create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &0i128,
-        &500i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &0i128, &500i128, &1, &2, &86_400u64,
     );
     assert!(matches!(res, Err(Ok(RentalError::InvalidAmount))));
 }
@@ -148,14 +119,7 @@ fn create_agreement_rejects_zero_deposit() {
     let client = t.client();
     let item = item_ref(&t.env, "listing-1");
     let res = client.try_create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &0i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &1000i128, &0i128, &1, &2, &86_400u64,
     );
     assert!(matches!(res, Err(Ok(RentalError::InvalidAmount))));
 }
@@ -166,14 +130,7 @@ fn create_agreement_rejects_inverted_time_range() {
     let client = t.client();
     let item = item_ref(&t.env, "listing-1");
     let res = client.try_create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &500i128,
-        &2,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &1000i128, &500i128, &2, &2, &86_400u64,
     );
     assert!(matches!(res, Err(Ok(RentalError::InvalidTimeRange))));
 }
@@ -207,14 +164,7 @@ fn create_agreement_requires_renter_auth() {
     // No auth is mocked, so the required renter.require_auth() fails at the
     // host level before any business logic runs.
     let res = client.try_create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &500i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &1000i128, &500i128, &1, &2, &86_400u64,
     );
     assert!(matches!(res, Err(Err(_))));
 }
@@ -249,14 +199,7 @@ fn create_agreement_rejects_owner_signature() {
         },
     }]);
     let res = client.try_create_agreement(
-        &t.owner,
-        &t.renter,
-        &item,
-        &1000i128,
-        &500i128,
-        &1,
-        &2,
-        &86_400u64,
+        &t.owner, &t.renter, &item, &1000i128, &500i128, &1, &2, &86_400u64,
     );
     assert!(matches!(res, Err(Err(_))));
 }
@@ -271,15 +214,13 @@ fn fund_agreement_transfers_rental_plus_deposit() {
 
     assert_eq!(balance(&t.env, &t.token, &t.renter), 0);
     assert_eq!(balance(&t.env, &t.token, &t.contract_id), 1500);
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(id))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(id))
+            .unwrap()
+    });
     assert_eq!(stored.status, AgreementStatus::Funded);
 }
 
@@ -330,15 +271,13 @@ fn start_rental_activates_a_funded_agreement() {
     t.client().fund_agreement(&t.renter, &id);
     t.client().start_rental(&t.owner, &id);
 
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(id))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(id))
+            .unwrap()
+    });
     assert_eq!(stored.status, AgreementStatus::Active);
 }
 
@@ -386,15 +325,13 @@ fn full_happy_path_fund_to_release() {
     assert_eq!(balance(&t.env, &t.token, &t.renter), 500);
     assert_eq!(balance(&t.env, &t.token, &t.owner), 1000);
     assert_eq!(balance(&t.env, &t.token, &t.contract_id), 0);
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(id))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(id))
+            .unwrap()
+    });
     assert_eq!(stored.status, AgreementStatus::Completed);
 }
 
@@ -490,15 +427,13 @@ fn cancel_agreement_before_funding() {
     let item = item_ref(&t.env, "listing-1");
     let id = create_agreement(&t, &item);
     t.client().cancel_agreement(&t.renter, &id);
-    let stored: RentalAgreement = t
-        .env
-        .as_contract(&t.contract_id, || {
-            t.env
-                .storage()
-                .persistent()
-                .get(&DataKey::Agreement(id))
-                .unwrap()
-        });
+    let stored: RentalAgreement = t.env.as_contract(&t.contract_id, || {
+        t.env
+            .storage()
+            .persistent()
+            .get(&DataKey::Agreement(id))
+            .unwrap()
+    });
     assert_eq!(stored.status, AgreementStatus::Cancelled);
 }
 
