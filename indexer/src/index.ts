@@ -1,11 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import dns from 'node:dns';
 
-import express from 'express';
-import cors from 'cors';
-
-import { agreementsRouter } from './api/agreements.js';
-import { listingsRouter } from './api/listings.js';
+import { createApp } from './app.js';
 import { config } from './config.js';
 import { initDb } from './db/client.js';
 import { startListener } from './listener.js';
@@ -21,26 +17,7 @@ export async function main(): Promise<void> {
 
   await initDb();
 
-  const app = express();
-  // Allowed browser origins for the REST API. Configurable via CORS_ORIGIN
-  // (comma-separated list) so the deployed frontend's URL can be added
-  // without a code change; falls back to the local dev frontend. Set
-  // CORS_ORIGIN to the Vercel URL (e.g. https://kitcrate.vercel.app) in
-  // production.
-  const allowedOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3001')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0);
-  app.use(cors({ origin: allowedOrigins }));
-  app.use(express.json());
-
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
-  });
-
-  app.use('/agreements', agreementsRouter);
-  app.use('/listings', listingsRouter);
-
+  const app = createApp();
   const server = app.listen(config.port, () => {
     console.log(`[api] KitCrate indexer API listening on http://localhost:${config.port}`);
   });

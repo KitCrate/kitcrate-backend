@@ -1,6 +1,7 @@
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 
 import { pool } from '../db/client.js';
+import { authenticatedAddress, requireListingAuth } from '../auth/middleware.js';
 
 export const listingsRouter = Router();
 
@@ -93,62 +94,123 @@ listingsRouter.get('/:id', async (req, res) => {
   res.json(result.rows[0]);
 });
 
-/// POST /listings
-listingsRouter.post('/', async (req, res) => {
-  const normalized = normalizeListing((req.body ?? {}) as ListingInput);
-  if (!normalized.ok) {
-    res.status(400).json({ error: normalized.error });
+/// Rejects a malformed request body before any authentication work: a
+/// caller cannot even obtain a matching challenge for POST /listings
+/// without already knowing the target id (createChallenge requires a
+/// listingId), so an id-shaped body is a precondition for auth to be
+/// meaningful here, not an authorization concern itself. Kept separate
+/// from requireListingAuth so "malformed request" (400) and
+/// "unauthenticated" (401) stay distinguishable to callers and tests.
+function requireBodyId(req: Request, res: Response, next: NextFunction): void {
+  const id = (req.body as ListingInput | undefined)?.id;
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    res.status(400).json({ error: 'id is required and must be a non-empty string' });
     return;
   }
-  const values = normalized.values;
-  try {
+  next();
+}
+
+/// POST /listings
+/// Auth: the caller must present a valid, unexpired, single-use
+/// create_listing challenge for the exact `id` in the body (see
+/// auth/middleware.ts), and the authenticated address must equal the
+/// body's own `owner` field — a signed-in caller can only ever create a
+/// listing that claims to be owned by themselves, never by anyone else.
+listingsRouter.post(
+  '/',
+  requireBodyId,
+  requireListingAuth('create_listing', (req) => (req.body as ListingInput).id as string),
+  async (req, res) => {
+    const normalized = normalizeListing((req.body ?? {}) as ListingInput);
+    if (!normalized.ok) {
+      res.status(400).json({ error: normalized.error });
+      return;
+    }
+    if (normalized.values[1] !== authenticatedAddress(res)) {
+      res.status(403).json({ error: 'body owner must match the authenticated address' });
+      return;
+    }
+    const values = normalized.values;
+    try {
+      const result = await pool.query(
+        `INSERT INTO listings (id, owner, title, description, photo_urls, location, daily_rate, deposit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        values,
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      if ((err as { code?: string }).code === '23505') {
+        res.status(409).json({ error: `a listing with id "${values[0]}" already exists` });
+        return;
+      }
+      throw err;
+    }
+  },
+);
+
+/// PUT /listings/:id
+/// Auth: the caller must present a valid, unexpired, single-use
+/// update_listing challenge for this exact `:id`, and the authenticated
+/// address must equal the *stored* owner of that listing — not the
+/// owner field in the request body, which the caller could set to
+/// anything. A non-owner (even one who is validly authenticated as
+/// themselves) can never update someone else's listing.
+listingsRouter.put(
+  '/:id',
+  requireListingAuth('update_listing', (req) => (typeof req.params.id === 'string' ? req.params.id : undefined)),
+  async (req, res) => {
+    const existing = await pool.query<{ owner: string }>('SELECT owner FROM listings WHERE id = $1', [
+      req.params.id,
+    ]);
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: 'listing not found' });
+      return;
+    }
+    if (existing.rows[0]?.owner !== authenticatedAddress(res)) {
+      res.status(403).json({ error: 'only the listing owner may update this listing' });
+      return;
+    }
+
+    const normalized = normalizeListing({ ...(req.body ?? {}), id: req.params.id } as ListingInput);
+    if (!normalized.ok) {
+      res.status(400).json({ error: normalized.error });
+      return;
+    }
+    const values = normalized.values;
     const result = await pool.query(
-      `INSERT INTO listings (id, owner, title, description, photo_urls, location, daily_rate, deposit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `UPDATE listings
+       SET owner = $2, title = $3, description = $4, photo_urls = $5,
+           location = $6, daily_rate = $7, deposit = $8, updated_at = now()
+       WHERE id = $1
        RETURNING *`,
       values,
     );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    if ((err as { code?: string }).code === '23505') {
-      res.status(409).json({ error: `a listing with id "${values[0]}" already exists` });
-      return;
-    }
-    throw err;
-  }
-});
-
-/// PUT /listings/:id
-listingsRouter.put('/:id', async (req, res) => {
-  const normalized = normalizeListing({ ...(req.body ?? {}), id: req.params.id } as ListingInput);
-  if (!normalized.ok) {
-    res.status(400).json({ error: normalized.error });
-    return;
-  }
-  const values = normalized.values;
-  const result = await pool.query(
-    `UPDATE listings
-     SET owner = $2, title = $3, description = $4, photo_urls = $5,
-         location = $6, daily_rate = $7, deposit = $8, updated_at = now()
-     WHERE id = $1
-     RETURNING *`,
-    values,
-  );
-  if (result.rows.length === 0) {
-    res.status(404).json({ error: 'listing not found' });
-    return;
-  }
-  res.json(result.rows[0]);
-});
+    res.json(result.rows[0]);
+  },
+);
 
 /// DELETE /listings/:id
-listingsRouter.delete('/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM listings WHERE id = $1 RETURNING id', [
-    req.params.id,
-  ]);
-  if (result.rows.length === 0) {
-    res.status(404).json({ error: 'listing not found' });
-    return;
-  }
-  res.status(204).end();
-});
+/// Auth: the caller must present a valid, unexpired, single-use
+/// delete_listing challenge for this exact `:id`, and the authenticated
+/// address must equal the *stored* owner of that listing.
+listingsRouter.delete(
+  '/:id',
+  requireListingAuth('delete_listing', (req) => (typeof req.params.id === 'string' ? req.params.id : undefined)),
+  async (req, res) => {
+    const existing = await pool.query<{ owner: string }>('SELECT owner FROM listings WHERE id = $1', [
+      req.params.id,
+    ]);
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: 'listing not found' });
+      return;
+    }
+    if (existing.rows[0]?.owner !== authenticatedAddress(res)) {
+      res.status(403).json({ error: 'only the listing owner may delete this listing' });
+      return;
+    }
+
+    await pool.query('DELETE FROM listings WHERE id = $1', [req.params.id]);
+    res.status(204).end();
+  },
+);

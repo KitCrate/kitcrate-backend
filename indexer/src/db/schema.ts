@@ -74,4 +74,23 @@ CREATE TABLE IF NOT EXISTS sync_state (
   last_processed_ledger BIGINT NOT NULL,
   CHECK (id = 1)
 );
+
+-- One-shot SEP-53 signed-message challenges used to authenticate listing
+-- mutations (POST/PUT/DELETE /listings). A row is deleted the moment it is
+-- consumed (see auth/challenges.ts), so its presence alone means "issued,
+-- unused, unexpired" — no separate "used" flag is needed. Bound to one
+-- (address, action, listing_id) triple so a signed challenge can only ever
+-- authorize the exact mutation it was issued for, never a different one.
+CREATE TABLE IF NOT EXISTS auth_challenges (
+  nonce TEXT PRIMARY KEY,
+  address TEXT NOT NULL,
+  action TEXT NOT NULL,
+  listing_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at
+  ON auth_challenges (expires_at);
 `;
