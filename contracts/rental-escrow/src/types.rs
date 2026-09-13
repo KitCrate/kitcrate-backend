@@ -48,10 +48,14 @@ pub struct RentalAgreement {
 /// Lifecycle of an agreement. Transitions are enforced per function; see
 /// the individual function doc comments.
 ///
-/// New variants must be appended at the end, never inserted: the indexer
-/// (`indexer/src/listener.ts`) decodes this enum by its on-chain variant
-/// index (`STATUS_NAMES`), so reordering existing variants would silently
-/// relabel every already-indexed agreement's status.
+/// Soroban encodes a fieldless enum variant as a one-element vec holding
+/// the variant's name as a Symbol (confirmed against live Testnet
+/// events), not a positional index, so the indexer's own status decoding
+/// is name-based and does not depend on this enum's declaration order.
+/// New variants are still appended at the end here, as a documentation
+/// convention (it keeps the "normal path" statuses grouped together and
+/// the liveness-recovery ones visibly distinct) rather than a technical
+/// requirement.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgreementStatus {

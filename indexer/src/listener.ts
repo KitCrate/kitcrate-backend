@@ -27,19 +27,13 @@ export interface ParsedEvent {
   data: unknown;
 }
 
-/// The contract serializes AgreementStatus as its variant index; the
-/// off-chain status names are documented in the contract types.
-const STATUS_NAMES = [
-  'Created',
-  'Funded',
-  'Active',
-  'Disputed',
-  'Resolved',
-  'Completed',
-  'Cancelled',
-] as const;
-
-/// Status each transition event moves an agreement to.
+/// Status each transition event moves an agreement to. Every one of these
+/// is a plain string topic name -> status name mapping (confirmed against
+/// live Testnet events, not just the contract source): unlike
+/// `agreement_created`'s full-struct payload, these events carry only the
+/// bare agreement id as data, so there's no encoded status field to
+/// decode here at all -- the topic name itself is what tells us the new
+/// status.
 const EVENT_STATUS: Record<string, string> = {
   agreement_funded: 'Funded',
   rental_started: 'Active',
@@ -158,7 +152,19 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
   switch (topicName) {
     case 'agreement_created': {
       const d = data as Record<string, unknown>;
-      const statusIndex = Number(d.status ?? 0);
+      // The contract's create_agreement always sets status to Created --
+      // it's a Rust literal, `AgreementStatus::Created`, never a variable
+      // (see contracts/rental-escrow/src/agreement.rs) -- so the stored
+      // status here is hardcoded to match rather than decoded from
+      // `d.status`. (d.status is real data, decoded from the actual event:
+      // Soroban encodes a fieldless enum variant as a one-element vec
+      // holding the variant's name as a Symbol, e.g. `["Created"]`, not a
+      // bare numeric index -- confirmed against live Testnet events. A
+      // previous version of this code assumed a numeric index and read
+      // `Number(d.status)`, which is NaN for this real shape; it happened
+      // to produce the right answer only because create_agreement's status
+      // can never be anything but Created anyway, and an out-of-range
+      // lookup fell back to that same literal.)
       await client.query(
         `INSERT INTO agreements (
            contract_id, id, owner, renter, item_ref, rental_amount,
@@ -176,7 +182,7 @@ async function applyStateTransition(client: PoolClient, parsed: ParsedEvent): Pr
           d.start_time,
           d.end_time,
           d.claim_window_secs,
-          STATUS_NAMES[statusIndex] ?? 'Created',
+          'Created',
           d.created_at,
           ledger,
           ledger,

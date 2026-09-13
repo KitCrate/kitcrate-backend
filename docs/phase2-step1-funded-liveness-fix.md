@@ -114,15 +114,30 @@ an immediate refund.
 **3.9 Compatibility with existing statuses.** All seven existing
 transitions and their guards are unchanged; no existing function's
 behavior, error, or event changed. One new terminal status, `Expired`, was
-**appended** to the end of `AgreementStatus` rather than inserted, because
-`indexer/src/listener.ts` decodes this enum by its on-chain variant index
-(`STATUS_NAMES`, a positional array) — inserting a variant anywhere but
-the end would have silently relabeled every already-indexed agreement's
-status. `Expired` was chosen instead of reusing `Cancelled` because
-`Cancelled` is documented and tested as "no funds move" (it only occurs
-pre-funding); overloading it to also mean "funds were refunded after
-funding" would make that invariant false and would be a strictly worse,
-less honest signal for anyone reading agreement history later.
+**appended** to the end of `AgreementStatus` rather than inserted.
+
+> **Correction (made during the final integrated E2E pass, after live
+> Testnet events were actually decoded end-to-end):** the reasoning
+> written here at the time — that `indexer/src/listener.ts` decodes this
+> enum by on-chain variant index via a positional `STATUS_NAMES` array,
+> so inserting anywhere but the end would silently relabel already-indexed
+> agreements — was **wrong**. Real event data confirms Soroban encodes a
+> fieldless enum variant as a one-element vec holding the variant's own
+> name as a Symbol (e.g. `["Created"]`), not a numeric index; the
+> indexer's status decisions are name-based, not positional, and
+> `STATUS_NAMES` turned out to be dead code that coincidentally never
+> produced a wrong answer (see the indexer-correctness fix landed
+> alongside this correction, and `contracts/rental-escrow/src/types.rs`'s
+> now-corrected comment). Appending `Expired` at the end was therefore
+> not technically required — but it was harmless, and is kept as a
+> documentation convention, not reverted.
+
+`Expired` was chosen instead of reusing `Cancelled` because `Cancelled`
+is documented and tested as "no funds move" (it only occurs pre-funding);
+overloading it to also mean "funds were refunded after funding" would
+make that invariant false and would be a strictly worse, less honest
+signal for anyone reading agreement history later. This reasoning is
+independent of the indexer-encoding correction above and still holds.
 
 **3.10 New event.** `funded_agreement_expired`, topics
 `(Symbol("funded_agreement_expired"), id)`, data `(id, amount)` where

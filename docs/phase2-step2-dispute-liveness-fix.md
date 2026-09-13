@@ -54,8 +54,12 @@ claim-skeptical outcome `resolve_dispute` could itself produce.**
   other way), this fallback's outcome is already inside
   `resolve_dispute`'s own valid range (`0 <= amount_to_owner <=
   deposit_amount` explicitly permits `0`). Reusing `Resolved` needed no
-  change to `indexer/src/listener.ts`'s positional `STATUS_NAMES`
-  decoding at all. A distinct event (`dispute_auto_resolved`, see §7)
+  indexer change at all — a fact that still holds, though the original
+  reasoning here (attributing it to a positional `STATUS_NAMES` decode)
+  was later found to be wrong; see the correction in
+  `docs/phase2-step1-funded-liveness-fix.md` §3.9 and the
+  indexer-correctness fix from the final E2E pass. A distinct event
+  (`dispute_auto_resolved`, see §7)
   keeps "the arbiter actually adjudicated this" observable and
   auditable apart from "nobody did, so it defaulted," without needing a
   new status to carry that distinction.

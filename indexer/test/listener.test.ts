@@ -30,7 +30,13 @@ function createdEvent(agreementId: string, ledger: number): ParsedEvent {
     topicName: 'agreement_created',
     agreementId,
     data: {
-      status: 0,
+      // Real shape confirmed against live Testnet events: Soroban encodes
+      // a fieldless enum variant as a one-element vec holding the
+      // variant's name, not a bare numeric index. applyStateTransition
+      // doesn't actually read this field (create_agreement's status is
+      // always Created), but the mock matches real data anyway rather
+      // than a shape that was never actually correct.
+      status: ['Created'],
       owner: 'GBXFXNDLV4LSWA4VB7YIL5GBD7BVNR22SGBTDKMO2SBZZHDXSKZYCP7L',
       renter: 'GDPSNPO45LKBBUL2LTBR7P2ZUU4KEV3C3F5OO2DHYCGCCDLORNZGH5LL',
       item_ref: 'listing-1',
