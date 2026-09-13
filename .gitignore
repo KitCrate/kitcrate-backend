@@ -18,3 +18,7 @@ dist/
 
 # OS
 .DS_Store
+
+# Private security material -- never publish; docs/ is served by GitHub
+# Pages, so anything committed here becomes public immediately.
+docs/phase1-full-audit.md
