@@ -43,7 +43,7 @@ Environment variables, from `indexer/.env.example`:
 | --- | --- | --- |
 | `RPC_URL` | Soroban RPC endpoint. | `https://soroban-testnet.stellar.org` |
 | `CONTRACT_ID` | Deployed RentalEscrow contract id (`C...` address). Required for the event listener and for agreement data; the listings API works without it. | (empty) |
-| `DATABASE_URL` | Postgres connection string. | `postgres://kitcrate:kitcrate@localhost:5432/kitcrate` |
+| `DATABASE_URL` | Postgres connection string. | `postgres://kitcrate:kitcrate@localhost:5433/kitcrate` |
 | `PORT` | HTTP port for the REST API. | `3000` |
 | `POLL_INTERVAL_MS` | How often the event listener polls, in milliseconds. | `5000` |
 | `START_LEDGER` | First ledger to scan when no checkpoint exists. Set this to the ledger where the contract was deployed, or slightly earlier; the RPC node only retains recent history. | `1` |
