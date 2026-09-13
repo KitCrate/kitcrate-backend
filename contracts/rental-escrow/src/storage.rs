@@ -29,6 +29,21 @@ const AGREEMENT_TTL: u32 = 6_311_520; // 365.25 days of ledgers
 /// than a runtime privilege — see docs/phase2-step1-funded-liveness-fix.md.
 pub const FUNDED_RECOVERY_TIMEOUT_SECS: u64 = 604_800; // 7 days
 
+/// How long a `Disputed` agreement waits for `resolve_dispute` before
+/// `resolve_expired_dispute` becomes callable, in seconds.
+///
+/// Anchored to `disputed_at` (set by `raise_claim`). Longer than
+/// `FUNDED_RECOVERY_TIMEOUT_SECS` because real arbitration — reviewing
+/// off-chain evidence, corresponding with both parties — genuinely takes
+/// longer than confirming a handover, and an owner who raised a claim in
+/// good faith deserves a real chance at adjudication before the system
+/// defaults away from it. Fourteen days is long enough for that, and
+/// still short enough to bound how long a disputed agreement's full
+/// escrowed amount can sit locked if the arbiter is unresponsive. Fixed
+/// and compiled-in for the same reason as the funded-recovery timeout —
+/// see docs/phase2-step2-dispute-liveness-fix.md.
+pub const DISPUTE_RESOLUTION_TIMEOUT_SECS: u64 = 1_209_600; // 14 days
+
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Admin)
 }

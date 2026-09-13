@@ -39,6 +39,10 @@ pub struct RentalAgreement {
     /// negotiated separately and can already be in the past when funding
     /// happens.
     pub funded_at: u64,
+    /// Ledger timestamp `raise_claim` transitioned this agreement to
+    /// `Disputed`. `0` (its default) until a claim is raised. Anchors the
+    /// dispute-resolution timeout in `resolve_expired_dispute`.
+    pub disputed_at: u64,
 }
 
 /// Lifecycle of an agreement. Transitions are enforced per function; see

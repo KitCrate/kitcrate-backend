@@ -427,6 +427,7 @@ fn create_agreement_emits_agreement_created() {
         status: AgreementStatus::Created,
         created_at: common::NOW,
         funded_at: 0,
+        disputed_at: 0,
     };
     assert_eq!(
         t.env.events().all(),

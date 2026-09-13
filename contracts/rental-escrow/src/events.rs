@@ -50,6 +50,18 @@ pub fn dispute_resolved(env: &Env, id: u64, amount_to_owner: i128, amount_to_ren
     env.events().publish(topics, data);
 }
 
+/// Distinct from `dispute_resolved` even though `resolve_expired_dispute`
+/// leaves the agreement in the same `Resolved` status: this topic lets an
+/// observer tell "the arbiter adjudicated this" apart from "nobody did,
+/// so it defaulted" without needing to infer it from timing. Data shape
+/// mirrors `dispute_resolved`'s `(id, amount_to_owner, amount_to_renter)`
+/// with `amount_to_owner` always `0`.
+pub fn dispute_auto_resolved(env: &Env, id: u64, amount_to_renter: i128) {
+    let topics = (Symbol::new(env, "dispute_auto_resolved"), id);
+    let data = (id, 0i128, amount_to_renter);
+    env.events().publish(topics, data);
+}
+
 pub fn funds_released(env: &Env, id: u64) {
     let topics = (Symbol::new(env, "funds_released"), id);
     env.events().publish(topics, id);

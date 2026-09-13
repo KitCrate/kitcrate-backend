@@ -37,4 +37,7 @@ pub enum RentalError {
     /// The `Funded` recovery timeout has not yet elapsed; the agreement is
     /// still waiting on `start_rental`.
     RecoveryWindowActive = 13,
+    /// The dispute-resolution timeout has not yet elapsed; the agreement is
+    /// still waiting on `resolve_dispute`.
+    DisputeResolutionWindowActive = 14,
 }

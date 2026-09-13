@@ -47,6 +47,7 @@ impl RentalEscrow {
             return Err(RentalError::ClaimWindowExpired);
         }
         agreement.status = AgreementStatus::Disputed;
+        agreement.disputed_at = env.ledger().timestamp();
         storage::write_agreement(env, &agreement);
         events::claim_raised(env, id, claim_amount, &evidence_ref);
         Ok(())
@@ -87,6 +88,48 @@ impl RentalEscrow {
         agreement.status = AgreementStatus::Resolved;
         storage::write_agreement(env, &agreement);
         events::dispute_resolved(env, id, amount_to_owner, amount_to_renter);
+        Ok(())
+    }
+
+    /// Recovers a `Disputed` agreement whose arbiter never called
+    /// `resolve_dispute`. Auth: none. Permissionless and time-gated,
+    /// mirroring `reclaim_funded_agreement` and `release_funds`: anyone
+    /// may call it once `DISPUTE_RESOLUTION_TIMEOUT_SECS` has strictly
+    /// elapsed since `raise_claim`. Until that moment, and even after it
+    /// if nobody has called this yet, the arbiter can still resolve the
+    /// dispute normally through `resolve_dispute` — this only adds a
+    /// fallback for true abandonment, it never overrides or preempts an
+    /// arbiter who is still willing to adjudicate.
+    ///
+    /// Settles exactly as `resolve_dispute(arbiter, id, 0)` would: the
+    /// full deposit to the renter, the full rental fee to the owner (paid
+    /// regardless of dispute outcome, as in every other settlement path),
+    /// and status `Resolved`. This is deliberately the most
+    /// claim-skeptical of `resolve_dispute`'s own valid outputs (`0 <=
+    /// amount_to_owner <= deposit_amount` already permits awarding the
+    /// owner nothing) rather than a new economic model: an unadjudicated
+    /// claim must not default to rewarding the party who raised it.
+    /// Real-world action: closing out a dispute the arbiter silently
+    /// abandoned after the owner raised it in good faith.
+    pub fn resolve_expired_dispute(env: &Env, id: u64) -> Result<(), RentalError> {
+        let mut agreement = storage::read_agreement(env, id)?;
+        if agreement.status != AgreementStatus::Disputed {
+            return Err(RentalError::InvalidStatus);
+        }
+        let deadline = agreement
+            .disputed_at
+            .checked_add(storage::DISPUTE_RESOLUTION_TIMEOUT_SECS)
+            .ok_or(RentalError::Overflow)?;
+        if env.ledger().timestamp() <= deadline {
+            return Err(RentalError::DisputeResolutionWindowActive);
+        }
+        let token = TokenClient::new(env, &storage::read_token(env)?);
+        let contract = env.current_contract_address();
+        token.transfer(&contract, &agreement.renter, &agreement.deposit_amount);
+        token.transfer(&contract, &agreement.owner, &agreement.rental_amount);
+        agreement.status = AgreementStatus::Resolved;
+        storage::write_agreement(env, &agreement);
+        events::dispute_auto_resolved(env, id, agreement.deposit_amount);
         Ok(())
     }
 }

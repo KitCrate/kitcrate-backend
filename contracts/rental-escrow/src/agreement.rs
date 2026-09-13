@@ -78,6 +78,7 @@ impl RentalEscrow {
             status: AgreementStatus::Created,
             created_at: env.ledger().timestamp(),
             funded_at: 0,
+            disputed_at: 0,
         };
         storage::write_agreement(env, &agreement);
         events::agreement_created(env, &agreement);
