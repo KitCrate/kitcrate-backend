@@ -39,8 +39,14 @@ two ways:
   based on an arbiter's decision (see below). Either way, the rental fee
   itself always goes to the owner; it isn't part of what's being disputed.
 
-You won't get any of that money back before the rental is fully settled.
-There's no way to withdraw early once you've funded the agreement.
+You won't get any of that money back before the rental is fully settled —
+with one exception. If the owner never confirms handover (never clicks
+**Start rental**) after you've funded, you're not stuck waiting on them
+forever: seven days after you funded, anyone can trigger a recovery that
+refunds you in full, the rental fee and the deposit together, and closes
+the agreement out as **Expired**. The owner receives nothing in that case,
+since no handover was ever confirmed. If the owner does start the rental
+within those seven days, this never comes into play at all.
 
 ## What happens if a claim is raised against your deposit
 
@@ -55,6 +61,11 @@ arbiter didn't award to the owner is sent to you automatically. The rental
 fee you originally paid goes to the owner regardless, since it was earned
 by the rental happening at all; it's never part of what a claim can take
 back.
+
+If the arbiter never actually reviews the claim — fourteen days pass with
+no decision — anyone can trigger a fallback that settles it the same way
+an arbiter awarding the owner nothing would: your full deposit comes back
+to you. An unreviewed claim never defaults in the owner's favor.
 
 If no claim is raised, none of this applies. The claim window is currently
 3 days after the rental's scheduled end date, the same for every booking.

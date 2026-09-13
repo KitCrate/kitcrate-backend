@@ -46,13 +46,17 @@ to an arbiter's ruling if a claim is raised.
    with the owner or the renter.
 4. **Start the rental.** The owner confirms handover of the item. The
    agreement moves to an active state and the claim window starts counting
-   down from the rental's end date.
+   down from the rental's end date. If the owner never does this, the
+   renter isn't stuck: anyone can trigger a refund of everything the
+   renter paid in, seven days after funding.
 5. **Resolve normally, or via dispute.** If nobody raises a claim before the
    claim window closes, anyone can trigger the final settlement: the deposit
    goes back to the renter and the rental fee goes to the owner. If the owner
    raises a claim over damage before the window closes, a designated arbiter
    reviews the evidence off-chain and splits the deposit between the two
-   parties on-chain.
+   parties on-chain — and if the arbiter never rules, anyone can trigger a
+   fallback settlement, fourteen days after the claim, that defaults to no
+   award rather than leaving the deposit locked up.
 
 The full state machine, the exact function that drives each step, and a
 worked numeric example are in [Protocol Mechanics](protocol-mechanics.html).

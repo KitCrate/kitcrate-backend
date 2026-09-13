@@ -44,6 +44,18 @@ You don't need to do anything else if the item comes back in good shape.
 Once the claim window closes, anyone (you, the renter, or KitCrate) can
 trigger the final step, and the rental fee is sent to you automatically.
 
+### If you don't start the rental
+
+If you never click **Start rental** after the renter funds the agreement —
+you lose the key, change your mind, or simply forget — the renter isn't
+stuck waiting on you forever. Seven days after funding, anyone can trigger
+a recovery that refunds the renter's full payment (the rental fee and the
+deposit, everything they put in) and marks the agreement **Expired**. You
+don't receive the rental fee in that case: no handover was ever confirmed,
+so no rental happened. If you do start the rental any time within those
+seven days, this doesn't apply — it only exists for a booking that's
+genuinely been abandoned.
+
 ## Raising a claim
 
 If the item comes back damaged, go to the agreement page while it's still
@@ -68,6 +80,17 @@ receives whatever share of the deposit the arbiter didn't award to you.
 If you don't raise a claim before the window closes, you can't raise one
 afterward. The deposit is released to the renter automatically once the
 window passes.
+
+### If the arbiter doesn't decide
+
+Once you've raised a claim, you're waiting on the KitCrate arbiter to
+review it. If that doesn't happen — fourteen days pass with no decision —
+anyone can trigger a fallback settlement so your deposit doesn't stay
+locked up indefinitely. It resolves the same way an arbiter awarding you
+nothing from the deposit would: the full deposit goes to the renter, and
+you still receive the full rental fee, same as always. If the arbiter does
+review your claim within those fourteen days, this doesn't come into play
+at all — it's only there for a claim that's genuinely gone unanswered.
 
 ## Cancelling before it's funded
 

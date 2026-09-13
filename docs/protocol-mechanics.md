@@ -13,39 +13,87 @@ Source: `contracts/rental-escrow/src/agreement.rs` and
 
 ## The state machine
 
-An agreement has one of seven statuses, defined in
+An agreement has one of eight statuses, defined in
 `contracts/rental-escrow/src/types.rs`: `Created`, `Funded`, `Active`,
-`Disputed`, `Resolved`, `Completed`, `Cancelled`.
+`Disputed`, `Resolved`, `Completed`, `Cancelled`, `Expired`.
 
 ```
 Created
   |
   |  create_agreement (renter)
   v
-Funded ----------------------------> Cancelled
-  |                    cancel_agreement is only valid
-  |  fund_agreement    from Created, not from Funded or later.
-  |  (renter)
+Funded ----------------------------> Cancelled  [TERMINAL]
+  |  \                 cancel_agreement is only valid
+  |   \                from Created, not from Funded or later.
+  |    \
+  |     '-- now > funded_at + 7 days
+  |         reclaim_funded_agreement (anyone) --> Expired  [TERMINAL]
+  |         refunds rental_amount + deposit_amount to the renter
+  |
+  |  fund_agreement (renter)
   v
 Active
   |
   |---- claim window passes, no claim raised
-  |     release_funds (anyone) --------------------> Completed
+  |     release_funds (anyone) --------------------> Completed  [TERMINAL]
   |
   '---- raise_claim (owner), before the claim window closes
         v
-     Disputed
-        |
-        |  resolve_dispute (arbiter)
-        v
-     Resolved
+     Disputed --------------------------------------------.
+        |                                                   |
+        |  resolve_dispute (arbiter)                        |  now > disputed_at + 14 days
+        |  any 0 <= amount_to_owner <= deposit_amount        |  resolve_expired_dispute (anyone)
+        v                                                    |  deposit_amount to renter, rental_amount to owner
+     Resolved  [TERMINAL]  <-----------------------------------'
 ```
 
 `Created` is the only status `cancel_agreement` accepts. Once an agreement is
-`Funded`, the only ways out are the `Active` -> `Completed` path or the
-`Active` -> `Disputed` -> `Resolved` path. There is no path back to an
-earlier status, and no mutual-consent cancellation once money has moved.
-That's a deliberate scope limit of the current contract, not a bug.
+`Funded`, the ways out are: `start_rental` into the `Active` -> `Completed`
+or `Active` -> `Disputed` -> `Resolved` paths, or — if the owner never calls
+`start_rental` at all — a timeout-based recovery into `Expired` (see below).
+Once `Disputed`, a second timeout-based fallback reaches `Resolved` the same
+way even if the arbiter never acts. There is no path back to an earlier
+status, and no mutual-consent cancellation once money has moved. Both
+liveness fallbacks are permissionless and time-gated, deliberately mirroring
+`release_funds`'s own existing pattern, rather than an admin override — see
+the two `docs/phase2-step*-liveness-fix.md` design documents for the full
+reasoning.
+
+### `Funded` -> `Expired`: if the owner never starts the rental
+
+`reclaim_funded_agreement(id)`
+
+- **Auth:** none — permissionless, like `release_funds`. No caller-supplied
+  address exists to redirect funds to; the destination is always the
+  agreement's own stored `renter`.
+- **Requires:** status `Funded`, and the current time is more than seven
+  days past `funded_at` (the ledger timestamp `fund_agreement` recorded).
+- **On-chain effect:** refunds the full escrowed amount
+  (`rental_amount + deposit_amount`) to the renter. The owner receives
+  nothing — no handover was ever confirmed, so no rental period ever
+  began. Status becomes `Expired`, a status distinct from `Cancelled`
+  specifically because real funds moved here, unlike every `Cancelled`
+  agreement.
+
+### `Disputed` -> `Resolved` (fallback): if the arbiter never resolves
+
+`resolve_expired_dispute(id)`
+
+- **Auth:** none — permissionless, same shape as `reclaim_funded_agreement`.
+- **Requires:** status `Disputed`, and the current time is more than
+  fourteen days past `disputed_at` (the ledger timestamp `raise_claim`
+  recorded).
+- **On-chain effect:** settles exactly as `resolve_dispute(arbiter, id, 0)`
+  would — the full deposit to the renter, the full rental fee to the
+  owner — since `amount_to_owner = 0` is already one of `resolve_dispute`'s
+  own valid outputs. An unadjudicated claim defaults to not rewarding the
+  party who raised it. Status becomes `Resolved`, the same status a normal
+  arbiter decision produces; a distinct `dispute_auto_resolved` event (as
+  opposed to `dispute_resolved`) is what tells the two apart.
+  `resolve_dispute` remains fully available to the arbiter at any time
+  before this fallback actually fires, even past the nominal fourteen-day
+  mark — the fallback only forecloses once it has actually run, it never
+  disables genuine, late-but-real arbitration.
 
 ## Transitions
 
@@ -195,7 +243,36 @@ Status: `Resolved`. The owner ends up with 90.00 USDC total (10.00 from the
 deposit split plus the 80.00 rental fee); the renter ends up with 10.00 USDC
 back out of the 100.00 USDC originally paid in.
 
-In both paths the contract's balance for that agreement always nets to
+### Path C: the owner never starts the rental
+
+**3. `reclaim_funded_agreement`,** called by anyone more than seven days
+after `fund_agreement`, since `start_rental` never happened:
+
+| From | To | Amount |
+| --- | --- | --- |
+| Contract | Renter | 80.00 + 20.00 = **100.00 USDC** (the full amount funded) |
+
+Contract balance after: **0.00 USDC**. Status: `Expired`. The owner
+receives nothing — no rental period ever began.
+
+### Path D: a claim is raised, but the arbiter never resolves it
+
+**3. `raise_claim`,** as in Path B. Status: `Disputed`.
+
+**4. `resolve_expired_dispute`,** called by anyone more than fourteen days
+after the claim was raised, since `resolve_dispute` never happened:
+
+| From | To | Amount | Why |
+| --- | --- | --- | --- |
+| Contract | Renter | 20.00 USDC (the full deposit) | an unadjudicated claim defaults to no award |
+| Contract | Owner | 80.00 USDC (the full rental fee) | earned regardless of the dispute's outcome, same as every other path |
+
+Contract balance after: **0.00 USDC**. Status: `Resolved` (with a
+`dispute_auto_resolved` event rather than `dispute_resolved`, so the
+history still shows this wasn't an arbiter decision).
+
+In every path the contract's balance for that agreement always nets to
 zero: every unit that goes in through `fund_agreement` comes back out
-through exactly one of `release_funds` or `resolve_dispute`. The contract
-never retains a balance for a completed or resolved agreement.
+through exactly one of `release_funds`, `resolve_dispute`,
+`reclaim_funded_agreement`, or `resolve_expired_dispute`. The contract
+never retains a balance for a completed, resolved, or expired agreement.

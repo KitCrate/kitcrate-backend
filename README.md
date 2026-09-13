@@ -26,8 +26,10 @@ Telegram: [@Hollujay21](https://t.me/Hollujay21)
 
 Two pieces, connected only by on-chain events:
 
-- **`contracts/rental-escrow`**: a `no_std` Rust crate built with `soroban-sdk 27.0.5`. Every state transition (create, fund, start, dispute, resolve, release, cancel) emits an event. The contract never moves funds except through the escrow token's own `transfer` function.
-- **`indexer/`**: a TypeScript service that polls the Soroban RPC for those events, persists them idempotently to Postgres, derives a current-state `agreements` table from them, and exposes it (plus listing CRUD) over a REST API. The frontend reads through this API rather than the chain directly.
+- **`contracts/rental-escrow`**: a `no_std` Rust crate built with `soroban-sdk 27.0.5`. Every state transition (create, fund, start, dispute, resolve, release, cancel, plus two permissionless timeout-based recovery paths — see below) emits an event. The contract never moves funds except through the escrow token's own `transfer` function.
+- **`indexer/`**: a TypeScript service that polls the Soroban RPC for those events, persists them idempotently to Postgres, derives a current-state `agreements` table from them, and exposes it over a REST API. Listing metadata (title, photos, rate, deposit) lives here too, in a `listings` table with no on-chain equivalent; creating, editing, or deleting a listing requires a SEP-53 signed-message challenge proving control of the claimed owner address (see `indexer/src/auth/`) before the write is accepted. The frontend reads through this API rather than the chain directly.
+
+**Liveness:** a funded agreement whose owner never confirms handover, or a disputed agreement whose arbiter never rules, does not lock funds forever. Either case has a permissionless, time-gated recovery path (`reclaim_funded_agreement` after 7 days; `resolve_expired_dispute` after 14 days) that settles in the renter's favor rather than rewarding inaction — see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) for the full state machine.
 
 For the full agreement state machine, every function's auth and effect, and a worked numeric example, see [Protocol Mechanics](https://kitcrate.github.io/kitcrate-backend/protocol-mechanics.html) on the docs site. For every function signature and error code, see [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html).
 
@@ -41,7 +43,7 @@ Prerequisites: Rust (rustc >= 1.91), the [Stellar CLI](https://developers.stella
 stellar contract build --package rental-escrow
 ```
 
-Tested against this repo: produces `target/wasm32v1-none/release/rental_escrow.wasm` and reports 8 exported functions. `make wasm` runs the equivalent `cargo build` directly, if you'd rather not use the Stellar CLI.
+Tested against this repo: produces `target/wasm32v1-none/release/rental_escrow.wasm` and reports 10 exported functions. `make wasm` runs the equivalent `cargo build` directly, if you'd rather not use the Stellar CLI. That count describes building this repo's current source, not necessarily the address linked above under Links — see the note at the top of [Contract Reference](https://kitcrate.github.io/kitcrate-backend/contract-reference.html) for whether the two currently match.
 
 **Run the contract tests:**
 
@@ -61,7 +63,15 @@ npm run dev
 
 Real variables from `indexer/.env.example`: `RPC_URL`, `CONTRACT_ID`, `DATABASE_URL`, `PORT`, `POLL_INTERVAL_MS`, `START_LEDGER`.
 
-**Indexer tests:** there currently is no test script. `indexer/package.json` defines `build`, `typecheck`, `dev`, and `start` only, and there are no `*.test.ts` files in the repo. This is a real gap, not an oversight to paper over.
+**Indexer tests:** route-level integration tests against a real Postgres (no mocked database). Start the disposable test database, then run the suite:
+
+```sh
+make test-db-up            # starts a disposable Postgres, indexer/docker-compose.test.yml
+cd indexer
+npm test
+```
+
+`indexer/.env.test` (committed, non-secret) points `npm test` at that disposable database by default; it's never the same database `make db-up` starts for local dev.
 
 ## Contributing
 
@@ -70,7 +80,9 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md): this project isn't currently accepting
 ## Known limitations
 
 - **Render free-tier hosting.** The live indexer sleeps after a period of inactivity; the first request afterward can take up to about 50 seconds. The free Postgres database expires 30 days after creation and has to be recreated.
-- **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message; the contract itself has no awareness of it; it's a property of how Stellar account auth works against any `require_auth()` call.
+- **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message on every write flow; the contract itself has no awareness of it; it's a property of how Stellar account auth works against any `require_auth()` call.
+- **Listing-mutation challenges have no rate limit.** `POST /auth/challenge` is public and unauthenticated by design (possession of a challenge proves nothing without a valid signature over it), but the indexer doesn't currently throttle how many a single client can request. This bounds nothing about fund safety — challenges are single-use and never authorize a contract call — but an unbounded flood of them is an accepted, not-yet-addressed operational gap.
+- **The `Funded`/`Disputed` recovery timeouts (7 and 14 days) are fixed, compiled-in constants**, not configurable per agreement. A future iteration could make them negotiable at `create_agreement` time if real usage shows the defaults are a poor fit for some listings; for now, changing them is a code change, deliberately not a runtime privilege.
 
 ## License
 

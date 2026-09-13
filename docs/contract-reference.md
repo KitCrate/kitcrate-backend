@@ -13,6 +13,16 @@ contract, pulled directly from `contracts/rental-escrow/src/agreement.rs`,
 **Deployed testnet contract:**
 `CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`
 
+**This reference describes the current source, not necessarily what that
+address is running right now.** `reclaim_funded_agreement` and
+`resolve_expired_dispute` (below) were added after that address was last
+deployed, as a liveness fix for two previously-confirmed issues (see
+`docs/phase2-step1-funded-liveness-fix.md` and
+`docs/phase2-step2-dispute-liveness-fix.md`). Promoting them to that
+address, or a new one, is a separate deployment decision this reference
+does not assume has happened; until it has, that address still exports 8
+functions, not the 10 below.
+
 **Escrow token:** an SEP-41 token, set once at `initialize`. The live
 deployment uses a USDC-style token; every transfer in the contract goes
 through that token's own `transfer` function.
@@ -98,6 +108,27 @@ pub fn start_rental(owner: Address, id: u64) -> Result<(), RentalError>
 - **Emits:** `rental_started`, topics `(Symbol("rental_started"), id)`,
   data is the bare `id`.
 
+### `reclaim_funded_agreement`
+
+```rust
+pub fn reclaim_funded_agreement(id: u64) -> Result<(), RentalError>
+```
+
+- **Auth:** none. Permissionless, like `release_funds`: any address may
+  call this once the recovery window has passed. The payout destination
+  is always the agreement's own stored `renter`, so no caller can
+  redirect funds regardless of who calls it.
+- **Real-world action:** recovering a `Funded` agreement whose owner
+  never called `start_rental`. Requires status `Funded` and the current
+  ledger time to be more than `FUNDED_RECOVERY_TIMEOUT_SECS` (7 days)
+  past `funded_at`, the timestamp `fund_agreement` recorded. Refunds
+  `rental_amount + deposit_amount` to the renter; the owner receives
+  nothing, since no handover was ever confirmed.
+- **Returns:** nothing on success.
+- **Emits:** `funded_agreement_expired`, topics
+  `(Symbol("funded_agreement_expired"), id)`, data `(id, amount)` where
+  `amount` is the total refunded.
+
 ### `release_funds`
 
 ```rust
@@ -178,6 +209,31 @@ pub fn resolve_dispute(
 - **Emits:** `dispute_resolved`, topics `(Symbol("dispute_resolved"),
   id)`, data `(id, amount_to_owner, amount_to_renter)`.
 
+### `resolve_expired_dispute`
+
+```rust
+pub fn resolve_expired_dispute(id: u64) -> Result<(), RentalError>
+```
+
+- **Auth:** none. Permissionless, same shape as
+  `reclaim_funded_agreement`. `resolve_dispute` remains fully available
+  to the arbiter at any time before this actually fires — even past the
+  nominal deadline — so this never disables genuine, late-but-real
+  arbitration, only true abandonment.
+- **Real-world action:** recovering a `Disputed` agreement whose arbiter
+  never called `resolve_dispute`. Requires status `Disputed` and the
+  current ledger time to be more than `DISPUTE_RESOLUTION_TIMEOUT_SECS`
+  (14 days) past `disputed_at`, the timestamp `raise_claim` recorded.
+  Settles exactly as `resolve_dispute(arbiter, id, 0)` would: the full
+  deposit to the renter, the full rental fee to the owner.
+- **Returns:** nothing on success.
+- **Emits:** `dispute_auto_resolved`, topics
+  `(Symbol("dispute_auto_resolved"), id)`, data `(id, amount_to_owner,
+  amount_to_renter)` with `amount_to_owner` always `0` — a distinct topic
+  from `dispute_resolved` so the two settlement paths stay
+  distinguishable in the event history even though both leave the
+  agreement `Resolved`.
+
 ## Errors
 
 Every fallible function returns `Result<_, RentalError>`. `RentalError` is
@@ -186,9 +242,9 @@ a `#[contracterror]` enum with `#[repr(u32)]`, from
 
 | Code | Name | What triggers it |
 | --- | --- | --- |
-| 1 | `NotFound` | The `id` passed to any function that reads an agreement (`fund_agreement`, `start_rental`, `release_funds`, `cancel_agreement`, `raise_claim`, `resolve_dispute`) does not match a stored agreement. |
+| 1 | `NotFound` | The `id` passed to any function that reads an agreement (`fund_agreement`, `start_rental`, `release_funds`, `cancel_agreement`, `raise_claim`, `resolve_dispute`, `reclaim_funded_agreement`, `resolve_expired_dispute`) does not match a stored agreement. |
 | 2 | `Unauthorized` | The caller signed correctly but is the wrong address for the action: not the stored renter (`fund_agreement`), not the stored owner (`start_rental`, `raise_claim`), not the arbiter (`resolve_dispute`), or neither the stored owner nor renter (`cancel_agreement`). |
-| 3 | `InvalidStatus` | The agreement is not in the status the function requires: not `Created` (`fund_agreement`'s general case, `cancel_agreement`), not `Funded` (`start_rental`), not `Active` (`raise_claim`, `release_funds`), or not `Disputed` (`resolve_dispute`). |
+| 3 | `InvalidStatus` | The agreement is not in the status the function requires: not `Created` (`fund_agreement`'s general case, `cancel_agreement`), not `Funded` (`start_rental`, `reclaim_funded_agreement`), not `Active` (`raise_claim`, `release_funds`), or not `Disputed` (`resolve_dispute`, `resolve_expired_dispute`). |
 | 4 | `ClaimWindowExpired` | `raise_claim` called after `end_time + claim_window_secs` has already passed. |
 | 5 | `ClaimWindowActive` | `release_funds` called while the current time is still at or before `end_time + claim_window_secs`. |
 | 6 | `AlreadyFunded` | `fund_agreement` called on an agreement whose status is already `Funded`. |
@@ -196,8 +252,10 @@ a `#[contracterror]` enum with `#[repr(u32)]`, from
 | 8 | `AlreadyInitialized` | `initialize` called a second time on the same contract instance. |
 | 9 | `InvalidAmount` | A required amount is zero or negative where that's not allowed: `rental_amount <= 0` or `deposit_amount <= 0` in `create_agreement`, `claim_amount <= 0` in `raise_claim`, or `amount_to_owner < 0` in `resolve_dispute`. |
 | 10 | `InvalidTimeRange` | `create_agreement` called with `end_time <= start_time`. |
-| 11 | `Overflow` | An arithmetic operation would overflow: the next agreement id counter in `create_agreement`, the rental-plus-deposit sum in `fund_agreement`, or the `end_time + claim_window_secs` deadline in `raise_claim` and `release_funds`. |
+| 11 | `Overflow` | An arithmetic operation would overflow: the next agreement id counter in `create_agreement`, the rental-plus-deposit sum in `fund_agreement`, the `end_time + claim_window_secs` deadline in `raise_claim` and `release_funds`, or the recovery deadline in `reclaim_funded_agreement` and `resolve_expired_dispute`. |
 | 12 | `SameOwnerAndRenter` | `create_agreement` called with `owner == renter`. A party cannot rent to itself. |
+| 13 | `RecoveryWindowActive` | `reclaim_funded_agreement` called while the current time is still at or before `funded_at + 7 days`. |
+| 14 | `DisputeResolutionWindowActive` | `resolve_expired_dispute` called while the current time is still at or before `disputed_at + 14 days`. |
 
 A `RentalError` value only ever comes back when a function's own business
 logic rejects the call. A missing or invalid signature (the caller never
