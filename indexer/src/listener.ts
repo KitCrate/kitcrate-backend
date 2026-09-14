@@ -128,16 +128,24 @@ export function parseEvent(event: ContractEvent): ParsedEvent | null {
   };
 }
 
+/// Scoped by `config.contractId`, the same contract this listener process
+/// watches (see `startListener`'s early-return when it's unset). A
+/// contract_id with no row yet (its first-ever poll, or a fresh
+/// deployment pointed at by CONTRACT_ID) falls back to config.startLedger
+/// -- never to some other contract's stored checkpoint.
 async function readCheckpoint(): Promise<number> {
-  const result = await pool.query('SELECT last_processed_ledger FROM sync_state WHERE id = 1');
+  const result = await pool.query(
+    'SELECT last_processed_ledger FROM sync_state WHERE contract_id = $1',
+    [config.contractId],
+  );
   return Number(result.rows[0]?.last_processed_ledger ?? config.startLedger);
 }
 
 async function writeCheckpoint(ledger: number): Promise<void> {
   await pool.query(
-    `INSERT INTO sync_state (id, last_processed_ledger) VALUES (1, $1)
-     ON CONFLICT (id) DO UPDATE SET last_processed_ledger = EXCLUDED.last_processed_ledger`,
-    [ledger],
+    `INSERT INTO sync_state (contract_id, last_processed_ledger) VALUES ($1, $2)
+     ON CONFLICT (contract_id) DO UPDATE SET last_processed_ledger = EXCLUDED.last_processed_ledger`,
+    [config.contractId, ledger],
   );
 }
 

@@ -18,7 +18,13 @@
 // contract.
 //
 // `sync_state` stores the indexer checkpoint (last fully consumed
-// ledger) used to resume polling after a restart.
+// ledger) used to resume polling after a restart. Scoped by `contract_id`
+// for the same reason `agreements`/`agreement_events` are: pointing the
+// indexer at a new CONTRACT_ID must not resume from a checkpoint left
+// over by whatever contract it was previously watching. A fresh
+// contract_id naturally starts unset here, so readCheckpoint()'s
+// fallback to config.startLedger (START_LEDGER) takes effect exactly
+// once per contract, on its first-ever poll.
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS agreements (
   contract_id TEXT NOT NULL,
@@ -70,9 +76,8 @@ CREATE TABLE IF NOT EXISTS listings (
 );
 
 CREATE TABLE IF NOT EXISTS sync_state (
-  id INT PRIMARY KEY DEFAULT 1,
-  last_processed_ledger BIGINT NOT NULL,
-  CHECK (id = 1)
+  contract_id TEXT PRIMARY KEY,
+  last_processed_ledger BIGINT NOT NULL
 );
 
 -- One-shot SEP-53 signed-message challenges used to authenticate listing
