@@ -161,7 +161,7 @@ Full docs, including the state machine, contract reference, and guides for both 
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md): this project isn't currently accepting outside contributions.
+See [CONTRIBUTING.md](./CONTRIBUTING.md): this project isn't currently accepting outside contributions. `main` has branch protection requiring PRs and status checks, but 0 required reviewer approvals and admin bypass enabled — deliberate for a solo maintainer with no one else to review against, not an oversight.
 
 ## Maintainer
 

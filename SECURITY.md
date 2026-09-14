@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-This project is under active development on Stellar Testnet only, with
-no versioned releases yet (see the repository's release status). The
-only supported line is the current `main` branch.
+This project is under active development on Stellar Testnet only. The
+latest tagged release is [`v0.1.0`](https://github.com/KitCrate/kitcrate-backend/releases/tag/v0.1.0);
+the only supported line is the current `main` branch.
 
 ## Current audit status
 
@@ -15,10 +15,10 @@ promotion-audit.md`, `phase3-step2-production-indexer-rollout.md`).
 There has been no independent third-party audit. Do not treat this
 project as production-hardened for funds beyond Stellar Testnet.
 
-A known, publicly disclosed gap: the contract and indexer currently
-deployed at the documented Testnet address predate this repository's
-`main` branch. See the [README's "Testnet status" section](./README.md#testnet-status)
-for the current, accurate state of that gap.
+The deployed contract and indexer are promoted to and confirmed matching
+this repository's `main` branch as of `v0.1.0`. See the
+[README's "Testnet status" section](./README.md#testnet-status) for the
+current, specific evidence.
 
 ## Reporting a vulnerability
 
