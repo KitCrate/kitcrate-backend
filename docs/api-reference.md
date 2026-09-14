@@ -225,7 +225,7 @@ watch (`CONTRACT_ID`).
 ```json
 [
   {
-    "contract_id": "CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5",
+    "contract_id": "CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR",
     "id": "1",
     "owner": "GOWN...ER1",
     "renter": "GREN...TER1",

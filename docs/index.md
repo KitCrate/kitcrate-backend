@@ -123,14 +123,13 @@ The contract source and indexer source in these two repositories'
 current `main` branches are hardened: every function documented in
 [Protocol Mechanics](protocol-mechanics.html) and
 [Contract Reference](contract-reference.html) exists and is tested in
-source today. Promoting that hardened source to the publicly documented
-Testnet contract address and to the live indexer API is a separate,
-currently access-blocked operational step, not an engineering gap;
-until that promotion happens, what is actually running at those
-addresses may predate this source. See the backend README's "Testnet
-status" section for the current, specific state of that gap. This site
-describes the source, and says so explicitly wherever the two could
-otherwise be confused.
+source today. The Testnet contract address has since been promoted to
+this hardened source (redeployed and reinitialized from current `main`);
+the live indexer's promotion is confirmed for its hardened routes but
+has one specific, not-yet-independently-reverified detail remaining.
+See the backend README's "Testnet status" section for the current,
+specific state. This site describes the source, and says so explicitly
+wherever the two could otherwise be confused.
 
 ## Who this is for
 
@@ -152,7 +151,6 @@ otherwise be confused.
 - Live indexer API: [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com)
 - Contract and indexer source: [github.com/KitCrate/kitcrate-backend](https://github.com/KitCrate/kitcrate-backend)
 - Web app and SDK source: [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend)
-- Deployed testnet contract: `CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`
+- Deployed testnet contract: `CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR`
   (see [Testnet and production status](#testnet-and-production-status)
-  above before assuming this address runs the source described on this
-  site)
+  above for the current, specific state of the indexer's own promotion)

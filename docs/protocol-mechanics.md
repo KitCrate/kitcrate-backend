@@ -190,7 +190,7 @@ goes through that token's own SEP-41 `transfer` function. The contract
 itself is token-agnostic; it will work with any SEP-41-compliant token.
 
 That said, the currently documented Testnet contract
-(`CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`) was
+(`CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR`) was
 initialized with **native XLM**, confirmed by reading the token address
 from the contract's own instance storage and checking it against the
 deterministic native-asset Stellar Asset Contract address for Testnet.

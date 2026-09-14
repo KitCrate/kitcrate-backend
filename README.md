@@ -23,7 +23,7 @@ Currently deployed to **Stellar Testnet** only — see [Testnet status](#testnet
 | **Live indexer API** | [kitcrate-indexer.onrender.com](https://kitcrate-indexer.onrender.com) |
 | **Documentation** | [kitcrate.github.io/kitcrate-backend](https://kitcrate.github.io/kitcrate-backend/) |
 | **Frontend repo** | [github.com/KitCrate/kitcrate-frontend](https://github.com/KitCrate/kitcrate-frontend) |
-| **Testnet contract** | [`CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`](https://stellar.expert/explorer/testnet/contract/CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5) |
+| **Testnet contract** | [`CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR`](https://stellar.expert/explorer/testnet/contract/CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR) |
 
 ## What this repo does
 
@@ -136,9 +136,11 @@ npm test
 
 ## Testnet status
 
-**Repo vs. deployed — these are currently not the same build.** This repo's source (`HEAD`) exports 10 contract functions and includes two liveness-recovery paths (`reclaim_funded_agreement`, `resolve_expired_dispute`). The Testnet address linked above under [Project Links](#project-links) is currently running an earlier 8-function build without those recovery paths, and the live indexer is running an earlier build without the SEP-53 listing-auth layer described above. Promoting both to the hardened builds in this repo is a deployment step (a Testnet redeploy plus a Render config update), not an engineering one — the contract-promotion work is tracked in [`docs/phase3-step1-contract-promotion-audit.md`](docs/phase3-step1-contract-promotion-audit.md); the indexer-rollout work is tracked in a private, not-yet-published audit (`docs/phase3-step2-production-indexer-rollout.md`, not committed to this repo).
+**Repo and deployed contract now match.** `CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR` (linked above) was deployed and initialized from this repo's current `main`: wasm hash `98888df20ec96ccf073030d081a0eb8aed96fae80e68f3e9f634dad8f33c9a30`, independently re-verified against a fresh build of that exact source, exporting all 10 functions including both liveness-recovery paths (`reclaim_funded_agreement`, `resolve_expired_dispute`). This is a fresh deployment with **0 prior agreements**, confirmed directly from the contract's own `NextId` counter at initialization, not carried over from the previous address. The escrow token is unchanged: Testnet native XLM (`CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`).
 
-The deployed contract has processed 7 agreements to date (visible only as an internal counter — event-level detail beyond the RPC's retention window is no longer retrievable). The deployed escrow token is Testnet native XLM.
+The live indexer's hardened build is separately confirmed live, independently, today: `POST /auth/challenge` now validates requests instead of returning `404`, and `GET /diagnostics/orphaned-events` responds instead of `404` — both routes that simply did not exist before the SEP-53 listing-auth rollout. Not yet independently re-confirmed: whether the listener's event checkpoint is correctly tracking this new contract from its real deployment ledger (`4670252`) rather than a stale value carried over from the previous deployment. That was a separate bug (`sync_state` was an unscoped, single global checkpoint row, not per-contract) fixed in indexer commit `87aed8b`, but not yet re-verified live after that specific fix was deployed.
+
+Contract-promotion work is tracked in [`docs/phase3-step1-contract-promotion-audit.md`](docs/phase3-step1-contract-promotion-audit.md), which remains a historical record of the pre-promotion state and is not updated to reflect this. Indexer-rollout work is tracked in a private, not-yet-published audit.
 
 ## Documentation
 
@@ -152,8 +154,7 @@ Full docs, including the state machine, contract reference, and guides for both 
 
 ## Known limitations
 
-- **The Testnet address is not yet running this repo's hardened build.** See [Testnet status](#testnet-status) above.
-- **Zero recoverable history from the indexer's own event scan.** The 7 existing agreements on the deployed contract predate this indexer's retained event window; a fresh indexer deploy starts with an empty `agreements` table regardless.
+- **The indexer's checkpoint fix for this new contract has not been independently re-verified live yet.** See [Testnet status](#testnet-status) above.
 - **Render free-tier hosting.** The live indexer sleeps after a period of inactivity; the first request afterward can take up to about 50 seconds. The free Postgres database expires 30 days after creation and has to be recreated.
 - **Multisig accounts need enough signature weight.** A Soroban invocation from an account requires total signer weight meeting that account's medium threshold. A single Freighter-connected key on a multisig account can fall short of it, in which case the network rejects an otherwise correctly built and signed transaction with `txBadAuth`. The frontend SDK detects this ahead of signing and surfaces a clear message on every write flow; the contract itself has no awareness of it.
 - **Listing-mutation challenges have no rate limit.** `POST /auth/challenge` is public and unauthenticated by design (possession of a challenge proves nothing without a valid signature over it), but the indexer doesn't currently throttle how many a single client can request. Challenges are single-use and never authorize a contract call directly, but an unbounded flood of them is an accepted, not-yet-addressed operational gap.

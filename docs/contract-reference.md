@@ -11,17 +11,16 @@ contract, pulled directly from `contracts/rental-escrow/src/agreement.rs`,
 `contracts/rental-escrow/src/error.rs`.
 
 **Deployed testnet contract:**
-`CABLLUB5PU6GR6OE66457W5L7SRSVSUEZ73OYV7W2P47A3L4ZVTZGIP5`
+`CBV57X2CLKX2BHG2COGJNNOHU3ZY4A45L6SCZ32IZCKBS2LFEZ7CL4FR`
 
-**This reference describes the current source, not necessarily what that
-address is running right now.** `reclaim_funded_agreement` and
-`resolve_expired_dispute` (below) were added after that address was last
-deployed, as a liveness fix for two previously-confirmed issues (see
+**This address now runs the source described below.** It was deployed
+and initialized from this repo's current `main`, including
+`reclaim_funded_agreement` and `resolve_expired_dispute` (added as a
+liveness fix for two previously-confirmed issues, see
 `docs/phase2-step1-funded-liveness-fix.md` and
-`docs/phase2-step2-dispute-liveness-fix.md`). Promoting them to that
-address, or a new one, is a separate deployment decision this reference
-does not assume has happened; until it has, that address still exports 8
-functions, not the 10 below.
+`docs/phase2-step2-dispute-liveness-fix.md`). Its wasm hash and exported
+interface were independently re-verified against a fresh build of that
+exact source: all 10 functions below, not 8.
 
 **Escrow token:** an SEP-41 token, set once at `initialize`. The
 contract is token-agnostic; it accepts any SEP-41-compliant token
