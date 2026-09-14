@@ -22,3 +22,4 @@ dist/
 # Private security material -- never publish; docs/ is served by GitHub
 # Pages, so anything committed here becomes public immediately.
 docs/phase1-full-audit.md
+docs/phase3-step2-production-indexer-rollout.md

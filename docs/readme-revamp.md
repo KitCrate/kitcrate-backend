@@ -1,6 +1,6 @@
 # README Professional Presentation Revamp
 
-This is a public documentation report on rewriting both `kitcrate-backend/README.md` and `kitcrate-frontend/README.md` as polished project landing pages. It documents a presentation/documentation change only — no contract, indexer, SDK, or frontend source was modified. This is **not** the private security audit; it contains no vulnerability detail beyond what the already-public [`docs/phase3-step1-contract-promotion-audit.md`](phase3-step1-contract-promotion-audit.md) and [`docs/phase3-step2-production-indexer-rollout.md`](phase3-step2-production-indexer-rollout.md) state.
+This is a public documentation report on rewriting both `kitcrate-backend/README.md` and `kitcrate-frontend/README.md` as polished project landing pages. It documents a presentation/documentation change only — no contract, indexer, SDK, or frontend source was modified. This is **not** the private security audit; it contains no vulnerability detail beyond what the already-public [`docs/phase3-step1-contract-promotion-audit.md`](phase3-step1-contract-promotion-audit.md) states. (`docs/phase3-step2-production-indexer-rollout.md` was briefly committed alongside this file and has since been made private and untracked; see that report's own revision history for why.)
 
 ## 1. Banner assets
 
