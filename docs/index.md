@@ -124,12 +124,13 @@ current `main` branches are hardened: every function documented in
 [Protocol Mechanics](protocol-mechanics.html) and
 [Contract Reference](contract-reference.html) exists and is tested in
 source today. The Testnet contract address has since been promoted to
-this hardened source (redeployed and reinitialized from current `main`);
-the live indexer's promotion is confirmed for its hardened routes but
-has one specific, not-yet-independently-reverified detail remaining.
-See the backend README's "Testnet status" section for the current,
-specific state. This site describes the source, and says so explicitly
-wherever the two could otherwise be confused.
+this hardened source (redeployed and reinitialized from current `main`),
+and the live indexer's promotion is confirmed too, including the
+event-listener checkpoint fix that keeps it correctly tracking this new
+contract's actual ledger range. See the backend README's "Testnet
+status" section for the specific evidence. This site describes the
+source, and says so explicitly wherever the two could otherwise be
+confused.
 
 ## Who this is for
 
